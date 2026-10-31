@@ -56,6 +56,20 @@ if ($action === 'health' && $method === 'GET') {
     respond(200, ['ok'=>true, 'service'=>'vam-kamali-api', 'configured'=>is_file(__DIR__.'/config.php')]);
 }
 
+if ($action === 'dbcheck' && $method === 'GET') {
+    try {
+        $pdo = database();
+        $pdo->query('SELECT 1');
+        respond(200, ['ok'=>true, 'database'=>'connected']);
+    } catch (PDOException $e) {
+        error_log('Vam Kamali API database check error: '.$e->getMessage());
+        respond(503, ['ok'=>false, 'error'=>'database_connection_failed', 'sqlstate'=>(string)$e->getCode()]);
+    } catch (Throwable $e) {
+        error_log('Vam Kamali API database check error: '.$e->getMessage());
+        respond(503, ['ok'=>false, 'error'=>'database_check_failed']);
+    }
+}
+
 if ($action === 'register' && $method === 'POST') {
     $d = requestData();
     $username = trim((string)($d['username'] ?? ''));

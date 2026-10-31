@@ -102,7 +102,7 @@ if ($action === 'register' && $method === 'POST') {
     }
     try {
         $pdo = database();
-        $stmt = $pdo->prepare('INSERT INTO members (username, password_hash, role) VALUES (?, ?, 'member')');
+        $stmt = $pdo->prepare('INSERT INTO members (username, password_hash, role) VALUES (?, ?, \'member\')');
         $stmt->execute([$username, password_hash($password, PASSWORD_DEFAULT)]);
         $id = (int)$pdo->lastInsertId();
         respond(201, ['ok'=>true, 'user'=>['id'=>$id, 'username'=>$username, 'role'=>'member'], 'token'=>issueToken($pdo, $id)]);

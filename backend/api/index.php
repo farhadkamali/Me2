@@ -184,4 +184,63 @@ if ($action === 'ads' && $method === 'GET') {
     }
 }
 
+/* Admin-only advertisement management. All writes are server-authorized. */
+if ($action === 'admin-ads' && $method === 'GET') {
+    try {
+        $pdo = database();
+        requireAdmin($pdo);
+        $stmt = $pdo->query('SELECT id, title, bank, loan_amount, price, term_months, interest_rate, description, is_active FROM ads ORDER BY id DESC');
+        respond(200, ['ok'=>true, 'ads'=>$stmt->fetchAll()]);
+    } catch (Throwable $e) {
+        error_log('Vam Kamali API admin ads error: '.$e->getMessage());
+        respond(503, ['ok'=>false, 'error'=>'service_unavailable']);
+    }
+}
+if ($action === 'admin-ad-save' && $method === 'POST') {
+    try {
+        $pdo = database();
+        requireAdmin($pdo);
+        $d = requestData();
+        $title = trim((string)($d['title'] ?? ''));
+        $bank = trim((string)($d['bank'] ?? ''));
+        $loan = filter_var($d['loan_amount'] ?? null, FILTER_VALIDATE_INT);
+        $price = filter_var($d['price'] ?? null, FILTER_VALIDATE_INT);
+        $term = filter_var($d['term_months'] ?? null, FILTER_VALIDATE_INT);
+        $interest = trim((string)($d['interest_rate'] ?? ''));
+        $description = trim((string)($d['description'] ?? ''));
+        $id = filter_var($d['id'] ?? 0, FILTER_VALIDATE_INT);
+        if ($title === '' || mb_strlen($title) > 180 || $bank === '' || mb_strlen($bank) > 120 ||
+            $loan === false || $loan < 1 || $price === false || $price < 0 ||
+            $term === false || $term < 1 || $term > 120 || mb_strlen($interest) > 40 || mb_strlen($description) > 5000) {
+            respond(422, ['ok'=>false, 'error'=>'invalid_ad_fields', 'message'=>'اطلاعات آگهی معتبر نیست.']);
+        }
+        if ($id && $id > 0) {
+            $stmt = $pdo->prepare('UPDATE ads SET title=?, bank=?, loan_amount=?, price=?, term_months=?, interest_rate=?, description=? WHERE id=?');
+            $stmt->execute([$title,$bank,$loan,$price,$term,$interest,$description,$id]);
+            respond(200, ['ok'=>true, 'updated'=>true]);
+        }
+        $stmt = $pdo->prepare('INSERT INTO ads (title, bank, loan_amount, price, term_months, interest_rate, description, is_active) VALUES (?,?,?,?,?,?,?,1)');
+        $stmt->execute([$title,$bank,$loan,$price,$term,$interest,$description]);
+        respond(201, ['ok'=>true, 'id'=>(int)$pdo->lastInsertId()]);
+    } catch (Throwable $e) {
+        error_log('Vam Kamali API admin save ad error: '.$e->getMessage());
+        respond(503, ['ok'=>false, 'error'=>'service_unavailable']);
+    }
+}
+if ($action === 'admin-ad-delete' && $method === 'POST') {
+    try {
+        $pdo = database();
+        requireAdmin($pdo);
+        $d = requestData();
+        $id = filter_var($d['id'] ?? null, FILTER_VALIDATE_INT);
+        if (!$id || $id < 1) respond(422, ['ok'=>false, 'error'=>'invalid_ad_id']);
+        $stmt = $pdo->prepare('UPDATE ads SET is_active=0 WHERE id=?');
+        $stmt->execute([$id]);
+        respond(200, ['ok'=>true, 'deleted'=>true]);
+    } catch (Throwable $e) {
+        error_log('Vam Kamali API admin delete ad error: '.$e->getMessage());
+        respond(503, ['ok'=>false, 'error'=>'service_unavailable']);
+    }
+}
+
 respond(405, ['ok'=>false, 'error'=>'not_found_or_method_not_allowed']);

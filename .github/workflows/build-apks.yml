@@ -1,4 +1,4 @@
-name: Build Android APKs
+name: Build Vam Kamali APK
 
 on:
   workflow_dispatch:
@@ -11,10 +11,6 @@ jobs:
     env:
       ANDROID_HOME: /usr/local/lib/android/sdk
       ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
-    strategy:
-      fail-fast: false
-      matrix:
-        project: [members-app, manager-app]
     steps:
       - name: Checkout source
         uses: actions/checkout@v4
@@ -40,13 +36,13 @@ jobs:
         with:
           gradle-version: "8.9"
 
-      - name: Build debug APK
-        working-directory: ${{ matrix.project }}
+      - name: Build single app APK
+        working-directory: members-app
         run: gradle assembleDebug
 
-      - name: Upload APK artifact
+      - name: Upload single APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.project }}-debug-apk
-          path: ${{ matrix.project }}/app/build/outputs/apk/debug/app-debug.apk
+          name: vam-kamali-debug-apk
+          path: members-app/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error

@@ -42,6 +42,26 @@ function database(): PDO {
         [PDO::ATTR_ERRMODE=>PDO::ERRMODE_EXCEPTION, PDO::ATTR_DEFAULT_FETCH_MODE=>PDO::FETCH_ASSOC, PDO::ATTR_EMULATE_PREPARES=>false]
     );
 }
+function bearerToken(): string {
+    $header = $_SERVER['HTTP_AUTHORIZATION'] ?? '';
+    if (preg_match('/^Bearer\\s+([a-f0-9]{64})$/i', $header, $m)) return strtolower($m[1]);
+    return '';
+}
+function authenticatedUser(PDO $pdo): array {
+    $token = bearerToken();
+    if ($token === '') respond(401, ['ok'=>false, 'error'=>'authentication_required']);
+    $stmt = $pdo->prepare('SELECT m.id, m.username, m.role FROM auth_tokens t JOIN members m ON m.id=t.user_id WHERE t.token_hash=? AND t.expires_at>UTC_TIMESTAMP() LIMIT 1');
+    $stmt->execute([hash('sha256', $token)]);
+    $user = $stmt->fetch();
+    if (!$user) respond(401, ['ok'=>false, 'error'=>'invalid_or_expired_token']);
+    return $user;
+}
+function requireAdmin(PDO $pdo): array {
+    $user = authenticatedUser($pdo);
+    if (($user['role'] ?? 'member') !== 'admin') respond(403, ['ok'=>false, 'error'=>'admin_access_required']);
+    return $user;
+}
+
 function issueToken(PDO $pdo, int $userId): string {
     $token = bin2hex(random_bytes(32));
     $hash = hash('sha256', $token);
@@ -82,10 +102,10 @@ if ($action === 'register' && $method === 'POST') {
     }
     try {
         $pdo = database();
-        $stmt = $pdo->prepare('INSERT INTO members (username, password_hash) VALUES (?, ?)');
+        $stmt = $pdo->prepare('INSERT INTO members (username, password_hash, role) VALUES (?, ?, 'member')');
         $stmt->execute([$username, password_hash($password, PASSWORD_DEFAULT)]);
         $id = (int)$pdo->lastInsertId();
-        respond(201, ['ok'=>true, 'user'=>['id'=>$id, 'username'=>$username], 'token'=>issueToken($pdo, $id)]);
+        respond(201, ['ok'=>true, 'user'=>['id'=>$id, 'username'=>$username, 'role'=>'member'], 'token'=>issueToken($pdo, $id)]);
     } catch (PDOException $e) {
         if ($e->getCode() === '23000') respond(409, ['ok'=>false, 'error'=>'username_taken', 'message'=>'این نام کاربری قبلاً ثبت شده است.']);
         error_log('Vam Kamali API register error: '.$e->getMessage());
@@ -102,16 +122,53 @@ if ($action === 'login' && $method === 'POST') {
     $password = (string)($d['password'] ?? '');
     try {
         $pdo = database();
-        $stmt = $pdo->prepare('SELECT id, username, password_hash FROM members WHERE username = ? LIMIT 1');
+        $stmt = $pdo->prepare('SELECT id, username, password_hash, role FROM members WHERE username = ? LIMIT 1');
         $stmt->execute([$username]);
         $user = $stmt->fetch();
         if (!$user || !password_verify($password, $user['password_hash'])) {
             respond(401, ['ok'=>false, 'error'=>'invalid_credentials', 'message'=>'نام کاربری یا رمز عبور اشتباه است.']);
         }
         $token = issueToken($pdo, (int)$user['id']);
-        respond(200, ['ok'=>true, 'user'=>['id'=>(int)$user['id'], 'username'=>$user['username']], 'token'=>$token]);
+        respond(200, ['ok'=>true, 'user'=>['id'=>(int)$user['id'], 'username'=>$user['username'], 'role'=>$user['role']], 'token'=>$token]);
     } catch (Throwable $e) {
         error_log('Vam Kamali API login error: '.$e->getMessage());
+        respond(503, ['ok'=>false, 'error'=>'service_unavailable']);
+    }
+}
+
+
+if ($action === 'me' && $method === 'GET') {
+    try {
+        $pdo = database();
+        $user = authenticatedUser($pdo);
+        respond(200, ['ok'=>true, 'user'=>['id'=>(int)$user['id'], 'username'=>$user['username'], 'role'=>$user['role']]]);
+    } catch (Throwable $e) {
+        error_log('Vam Kamali API me error: '.$e->getMessage());
+        respond(503, ['ok'=>false, 'error'=>'service_unavailable']);
+    }
+}
+
+if ($action === 'admin-check' && $method === 'GET') {
+    try {
+        $pdo = database();
+        $user = requireAdmin($pdo);
+        respond(200, ['ok'=>true, 'admin'=>true, 'user'=>['id'=>(int)$user['id'], 'username'=>$user['username'], 'role'=>'admin']]);
+    } catch (Throwable $e) {
+        error_log('Vam Kamali API admin check error: '.$e->getMessage());
+        respond(503, ['ok'=>false, 'error'=>'service_unavailable']);
+    }
+}
+
+if ($action === 'logout' && $method === 'POST') {
+    try {
+        $token = bearerToken();
+        if ($token === '') respond(401, ['ok'=>false, 'error'=>'authentication_required']);
+        $pdo = database();
+        $stmt = $pdo->prepare('DELETE FROM auth_tokens WHERE token_hash=?');
+        $stmt->execute([hash('sha256', $token)]);
+        respond(200, ['ok'=>true, 'logged_out'=>true]);
+    } catch (Throwable $e) {
+        error_log('Vam Kamali API logout error: '.$e->getMessage());
         respond(503, ['ok'=>false, 'error'=>'service_unavailable']);
     }
 }

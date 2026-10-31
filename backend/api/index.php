@@ -2,9 +2,8 @@
 declare(strict_types=1);
 
 /**
- * Vam Kamali API starter.
- * Copy config.example.php to config.php and fill in hosting database details.
- * Never upload real database passwords to a public repository.
+ * Vam Kamali API.
+ * Keep config.php private on the server; never commit database credentials.
  */
 header('Content-Type: application/json; charset=utf-8');
 header('Cache-Control: no-store');
@@ -28,40 +27,90 @@ function respond(int $status, array $data): never {
     echo json_encode($data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
     exit;
 }
-
-if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'GET') {
-    respond(405, ['ok' => false, 'error' => 'method_not_allowed']);
+function requestData(): array {
+    $raw = file_get_contents('php://input');
+    $data = json_decode($raw ?: '', true);
+    return is_array($data) ? $data : [];
+}
+function database(): PDO {
+    $file = __DIR__ . '/config.php';
+    if (!is_file($file)) respond(503, ['ok'=>false, 'error'=>'server_not_configured']);
+    $c = require $file;
+    return new PDO(
+        sprintf('mysql:host=%s;dbname=%s;charset=utf8mb4', $c['db_host'], $c['db_name']),
+        $c['db_user'], $c['db_pass'],
+        [PDO::ATTR_ERRMODE=>PDO::ERRMODE_EXCEPTION, PDO::ATTR_DEFAULT_FETCH_MODE=>PDO::FETCH_ASSOC, PDO::ATTR_EMULATE_PREPARES=>false]
+    );
+}
+function issueToken(PDO $pdo, int $userId): string {
+    $token = bin2hex(random_bytes(32));
+    $hash = hash('sha256', $token);
+    $stmt = $pdo->prepare('INSERT INTO auth_tokens (user_id, token_hash, expires_at) VALUES (?, ?, DATE_ADD(UTC_TIMESTAMP(), INTERVAL 30 DAY))');
+    $stmt->execute([$userId, $hash]);
+    return $token;
 }
 
+$method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
 $action = $_GET['action'] ?? 'health';
-if ($action === 'health') {
-    respond(200, [
-        'ok' => true,
-        'service' => 'vam-kamali-api',
-        'configured' => is_file(__DIR__ . '/config.php'),
-        'message' => 'API endpoint is running; database connection has not yet been verified.'
-    ]);
+if ($action === 'health' && $method === 'GET') {
+    respond(200, ['ok'=>true, 'service'=>'vam-kamali-api', 'configured'=>is_file(__DIR__.'/config.php')]);
 }
 
-if ($action === 'ads') {
-    $configFile = __DIR__ . '/config.php';
-    if (!is_file($configFile)) {
-        respond(503, ['ok' => false, 'error' => 'server_not_configured']);
+if ($action === 'register' && $method === 'POST') {
+    $d = requestData();
+    $username = trim((string)($d['username'] ?? ''));
+    $password = (string)($d['password'] ?? '');
+    if (!preg_match('/^[a-zA-Z0-9_]{4,24}$/', $username)) {
+        respond(422, ['ok'=>false, 'error'=>'invalid_username', 'message'=>'نام کاربری باید ۴ تا ۲۴ حرف انگلیسی، عدد یا زیرخط باشد.']);
     }
-    $config = require $configFile;
+    if (strlen($password) < 8 || strlen($password) > 200) {
+        respond(422, ['ok'=>false, 'error'=>'invalid_password', 'message'=>'رمز عبور باید حداقل ۸ نویسه باشد.']);
+    }
     try {
-        $dsn = sprintf('mysql:host=%s;dbname=%s;charset=utf8mb4', $config['db_host'], $config['db_name']);
-        $pdo = new PDO($dsn, $config['db_user'], $config['db_pass'], [
-            PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
-            PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
-            PDO::ATTR_EMULATE_PREPARES => false,
-        ]);
-        $stmt = $pdo->query("SELECT id, title, bank, loan_amount, price, term_months, interest_rate, description FROM ads WHERE is_active = 1 ORDER BY id DESC");
-        respond(200, ['ok' => true, 'ads' => $stmt->fetchAll()]);
+        $pdo = database();
+        $stmt = $pdo->prepare('INSERT INTO members (username, password_hash) VALUES (?, ?)');
+        $stmt->execute([$username, password_hash($password, PASSWORD_DEFAULT)]);
+        $id = (int)$pdo->lastInsertId();
+        respond(201, ['ok'=>true, 'user'=>['id'=>$id, 'username'=>$username], 'token'=>issueToken($pdo, $id)]);
+    } catch (PDOException $e) {
+        if ($e->getCode() === '23000') respond(409, ['ok'=>false, 'error'=>'username_taken', 'message'=>'این نام کاربری قبلاً ثبت شده است.']);
+        error_log('Vam Kamali API register error: '.$e->getMessage());
+        respond(503, ['ok'=>false, 'error'=>'database_unavailable']);
     } catch (Throwable $e) {
-        error_log('Vam Kamali API database error: ' . $e->getMessage());
-        respond(503, ['ok' => false, 'error' => 'database_unavailable']);
+        error_log('Vam Kamali API register error: '.$e->getMessage());
+        respond(503, ['ok'=>false, 'error'=>'service_unavailable']);
     }
 }
 
-respond(404, ['ok' => false, 'error' => 'not_found']);
+if ($action === 'login' && $method === 'POST') {
+    $d = requestData();
+    $username = trim((string)($d['username'] ?? ''));
+    $password = (string)($d['password'] ?? '');
+    try {
+        $pdo = database();
+        $stmt = $pdo->prepare('SELECT id, username, password_hash FROM members WHERE username = ? LIMIT 1');
+        $stmt->execute([$username]);
+        $user = $stmt->fetch();
+        if (!$user || !password_verify($password, $user['password_hash'])) {
+            respond(401, ['ok'=>false, 'error'=>'invalid_credentials', 'message'=>'نام کاربری یا رمز عبور اشتباه است.']);
+        }
+        $token = issueToken($pdo, (int)$user['id']);
+        respond(200, ['ok'=>true, 'user'=>['id'=>(int)$user['id'], 'username'=>$user['username']], 'token'=>$token]);
+    } catch (Throwable $e) {
+        error_log('Vam Kamali API login error: '.$e->getMessage());
+        respond(503, ['ok'=>false, 'error'=>'service_unavailable']);
+    }
+}
+
+if ($action === 'ads' && $method === 'GET') {
+    try {
+        $pdo = database();
+        $stmt = $pdo->query('SELECT id, title, bank, loan_amount, price, term_months, interest_rate, description FROM ads WHERE is_active = 1 ORDER BY id DESC');
+        respond(200, ['ok'=>true, 'ads'=>$stmt->fetchAll()]);
+    } catch (Throwable $e) {
+        error_log('Vam Kamali API ads error: '.$e->getMessage());
+        respond(503, ['ok'=>false, 'error'=>'database_unavailable']);
+    }
+}
+
+respond(405, ['ok'=>false, 'error'=>'not_found_or_method_not_allowed']);

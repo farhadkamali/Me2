@@ -268,7 +268,7 @@ if ($action === 'admin-ad-delete' && $method === 'POST') {
 /* Purchase requests submitted by signed-in members; visible to admins. */
 if ($action === 'purchase-request-create' && $method === 'POST') {
  try {
-  $pdo=database(); ensureFeatureTables($pdo); $u=authenticatedUser($pdo); $d=requestData();
+  $pdo=database(); $u=authenticatedUser($pdo); $d=requestData();
   $adId=filter_var($d['ad_id']??null,FILTER_VALIDATE_INT);
   $name=trim((string)($d['full_name']??'')); $phone=trim((string)($d['phone']??''));
   $contactId=trim((string)($d['contact_id']??''));
@@ -279,14 +279,14 @@ if ($action === 'purchase-request-create' && $method === 'POST') {
   $q=$pdo->prepare('INSERT INTO purchase_requests(user_id,ad_id,full_name,phone,contact_id,city,notes) VALUES(?,?,?,?,?,?,?)');
   $q->execute([$u['id'],$adId,$name,$phone,$contactId,$city,$notes]);
   respond(201,['ok'=>true,'id'=>(int)$pdo->lastInsertId()]);
- } catch(Throwable $e) { error_log('Vam Kamali purchase request error: '.$e->getMessage()); respond(503,['ok'=>false,'error'=>'service_unavailable']); }
+ } catch(Throwable $e) { error_log('Vam Kamali purchase request error: '.$e->getMessage().' | '.$e->getFile().':'.$e->getLine()); respond(503,['ok'=>false,'error'=>'service_unavailable']); }
 }
 if ($action === 'admin-purchase-requests' && $method === 'GET') {
  try {
-  $pdo=database(); ensureFeatureTables($pdo); requireAdmin($pdo);
+  $pdo=database(); requireAdmin($pdo);
   $q=$pdo->query('SELECT r.id,r.user_id,r.ad_id,r.full_name,r.phone,r.contact_id,r.city,r.notes,r.status,r.created_at,m.username,a.title AS ad_title,a.bank FROM purchase_requests r JOIN members m ON m.id=r.user_id JOIN ads a ON a.id=r.ad_id ORDER BY r.id DESC');
   respond(200,['ok'=>true,'requests'=>$q->fetchAll()]);
- } catch(Throwable $e) { error_log('Vam Kamali admin purchase requests error: '.$e->getMessage()); respond(503,['ok'=>false,'error'=>'service_unavailable']); }
+ } catch(Throwable $e) { error_log('Vam Kamali admin purchase requests error: '.$e->getMessage().' | '.$e->getFile().':'.$e->getLine()); respond(503,['ok'=>false,'error'=>'service_unavailable']); }
 }
 
 /* Informational requests and member/support messaging only. */

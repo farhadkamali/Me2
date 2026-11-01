@@ -279,7 +279,7 @@ if ($action === 'purchase-request-create' && $method === 'POST') {
   $q=$pdo->prepare('INSERT INTO purchase_requests(user_id,ad_id,full_name,phone,contact_id,city,notes) VALUES(?,?,?,?,?,?,?)');
   $q->execute([$u['id'],$adId,$name,$phone,$contactId,$city,$notes]);
   respond(201,['ok'=>true,'id'=>(int)$pdo->lastInsertId()]);
- } catch(Throwable $e) { error_log('Vam Kamali purchase request error: '.$e->getMessage().' | '.$e->getFile().':'.$e->getLine()); respond(503,['ok'=>false,'error'=>'service_unavailable','diagnostic'=>get_class($e).' | '.$e->getMessage().' | '.$e->getFile().':'.$e->getLine()]); }
+ } catch(Throwable $e) { error_log('Vam Kamali purchase request error: '.$e->getMessage().' | '.$e->getFile().':'.$e->getLine()); respond(503,['ok'=>false,'error'=>'service_unavailable | '.get_class($e).' | '.$e->getMessage().' | '.$e->getFile().':'.$e->getLine(),'diagnostic'=>get_class($e).' | '.$e->getMessage().' | '.$e->getFile().':'.$e->getLine()]); }
 }
 if ($action === 'admin-purchase-requests' && $method === 'GET') {
  try {

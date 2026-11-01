@@ -69,7 +69,23 @@ function ensureFeatureTables(PDO $pdo): void {
  $cols=$pdo->query("SHOW COLUMNS FROM member_inquiries LIKE 'phone'"); if(!$cols->fetch()) $pdo->exec("ALTER TABLE member_inquiries ADD phone VARCHAR(11) NOT NULL DEFAULT '' AFTER user_id");
  $pdo->exec("CREATE TABLE IF NOT EXISTS member_messages (id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY, member_id BIGINT UNSIGNED NOT NULL, sender_id BIGINT UNSIGNED NOT NULL, body TEXT NOT NULL, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, INDEX(member_id,id)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
  $pdo->exec("CREATE TABLE IF NOT EXISTS purchase_requests (id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY, user_id BIGINT UNSIGNED NOT NULL, ad_id BIGINT UNSIGNED NOT NULL, full_name VARCHAR(120) NOT NULL, phone VARCHAR(11) NOT NULL, contact_id VARCHAR(160) NOT NULL DEFAULT '', city VARCHAR(80) NOT NULL DEFAULT '', notes TEXT NOT NULL, status ENUM('new','contacted','closed') NOT NULL DEFAULT 'new', created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, INDEX(user_id), INDEX(ad_id), INDEX(status)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
- $cols=$pdo->query("SHOW COLUMNS FROM purchase_requests LIKE 'contact_id'"); if(!$cols->fetch()) $pdo->exec("ALTER TABLE purchase_requests ADD contact_id VARCHAR(160) NOT NULL DEFAULT '' AFTER phone");
+ // Upgrade older purchase_requests tables created by previous app versions.
+ $purchaseColumns = [
+  'user_id' => "BIGINT UNSIGNED NOT NULL DEFAULT 0",
+  'ad_id' => "BIGINT UNSIGNED NOT NULL DEFAULT 0",
+  'full_name' => "VARCHAR(120) NOT NULL DEFAULT ''",
+  'phone' => "VARCHAR(11) NOT NULL DEFAULT ''",
+  'contact_id' => "VARCHAR(160) NOT NULL DEFAULT ''",
+  'city' => "VARCHAR(80) NOT NULL DEFAULT ''",
+  'notes' => "TEXT NULL",
+  'status' => "ENUM('new','contacted','closed') NOT NULL DEFAULT 'new'",
+  'created_at' => "TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP"
+ ];
+ foreach ($purchaseColumns as $column => $definition) {
+  $check = $pdo->prepare("SHOW COLUMNS FROM purchase_requests LIKE ?");
+  $check->execute([$column]);
+  if (!$check->fetch()) $pdo->exec("ALTER TABLE purchase_requests ADD COLUMN `".$column."` ".$definition);
+ }
 }
 
 function issueToken(PDO $pdo, int $userId): string {
@@ -171,7 +187,7 @@ if ($action === 'admin-check' && $method === 'GET') {
 
 if ($action === 'password-change' && $method === 'POST') {
  try {
-  $pdo=database(); $u=authenticatedUser($pdo); $d=requestData();
+  $pdo=database(); ensureFeatureTables($pdo); $u=authenticatedUser($pdo); $d=requestData();
   $current=(string)($d['current_password']??''); $next=(string)($d['new_password']??'');
   if(strlen($next)<8||strlen($next)>200) respond(422,['ok'=>false,'error'=>'invalid_new_password']);
   $q=$pdo->prepare('SELECT password_hash FROM members WHERE id=? LIMIT 1'); $q->execute([$u['id']]); $row=$q->fetch();
@@ -283,7 +299,7 @@ if ($action === 'purchase-request-create' && $method === 'POST') {
 }
 if ($action === 'admin-purchase-requests' && $method === 'GET') {
  try {
-  $pdo=database(); requireAdmin($pdo);
+  $pdo=database(); ensureFeatureTables($pdo); requireAdmin($pdo);
   $q=$pdo->query('SELECT r.id,r.user_id,r.ad_id,r.full_name,r.phone,r.contact_id,r.city,r.notes,r.status,r.created_at,m.username,a.title AS ad_title,a.bank FROM purchase_requests r JOIN members m ON m.id=r.user_id JOIN ads a ON a.id=r.ad_id ORDER BY r.id DESC');
   respond(200,['ok'=>true,'requests'=>$q->fetchAll()]);
  } catch(Throwable $e) { error_log('Vam Kamali admin purchase requests error: '.$e->getMessage().' | '.$e->getFile().':'.$e->getLine()); respond(503,['ok'=>false,'error'=>'service_unavailable']); }

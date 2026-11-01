@@ -11,7 +11,8 @@ header('X-Content-Type-Options: nosniff');
 
 $origin = $_SERVER['HTTP_ORIGIN'] ?? '';
 $allowedOrigin = getenv('VK_ALLOWED_ORIGIN') ?: '';
-if ($origin !== '' && $allowedOrigin !== '' && hash_equals($allowedOrigin, $origin)) {
+// Bundled Android WebView pages loaded from file:// send Origin: null.
+if ($origin === 'null' || ($origin !== '' && $allowedOrigin !== '' && hash_equals($allowedOrigin, $origin))) {
     header('Access-Control-Allow-Origin: ' . $origin);
     header('Vary: Origin');
 }

@@ -82,9 +82,11 @@ function ensureFeatureTables(PDO $pdo): void {
   'created_at' => "TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP"
  ];
  foreach ($purchaseColumns as $column => $definition) {
-  $check = $pdo->prepare("SHOW COLUMNS FROM purchase_requests LIKE ?");
+  // Query information_schema instead of preparing SHOW COLUMNS.
+  // Some MySQL/MariaDB versions reject placeholders in SHOW statements.
+  $check = $pdo->prepare("SELECT 1 FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'purchase_requests' AND COLUMN_NAME = ? LIMIT 1");
   $check->execute([$column]);
-  if (!$check->fetch()) $pdo->exec("ALTER TABLE purchase_requests ADD COLUMN `".$column."` ".$definition);
+  if (!$check->fetchColumn()) $pdo->exec("ALTER TABLE purchase_requests ADD COLUMN `".$column."` ".$definition);
  }
 }
 
@@ -300,7 +302,7 @@ if ($action === 'purchase-request-create' && $method === 'POST') {
 if ($action === 'admin-purchase-requests' && $method === 'GET') {
  try {
   $pdo=database(); ensureFeatureTables($pdo); requireAdmin($pdo);
-  $q=$pdo->query('SELECT r.id,r.user_id,r.ad_id,r.full_name,r.phone,r.contact_id,r.city,r.notes,r.status,r.created_at,m.username,a.title AS ad_title,a.bank AS ad_bank,a.loan_amount AS ad_loan_amount,a.price AS ad_price,a.term_months AS ad_term_months,a.interest_rate AS ad_interest_rate,a.description AS ad_description FROM purchase_requests r JOIN members m ON m.id=r.user_id JOIN ads a ON a.id=r.ad_id ORDER BY r.id DESC');
+  $q=$pdo->query('SELECT r.id,r.user_id,r.ad_id,r.full_name,r.phone,r.contact_id,r.city,r.notes,r.status,r.created_at,m.username,a.title AS ad_title,a.bank AS ad_bank,a.loan_amount AS ad_loan_amount,a.price AS ad_price,a.term_months AS ad_term_months,a.interest_rate AS ad_interest_rate,a.description AS ad_description FROM purchase_requests r LEFT JOIN members m ON m.id=r.user_id LEFT JOIN ads a ON a.id=r.ad_id ORDER BY r.id DESC');
   respond(200,['ok'=>true,'requests'=>$q->fetchAll()]);
  } catch(Throwable $e) { error_log('Vam Kamali admin purchase requests error: '.$e->getMessage().' | '.$e->getFile().':'.$e->getLine()); respond(503,['ok'=>false,'error'=>'service_unavailable']); }
 }

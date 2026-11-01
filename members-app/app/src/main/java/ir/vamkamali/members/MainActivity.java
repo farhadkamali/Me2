@@ -64,15 +64,7 @@ public class MainActivity extends Activity {
       settings.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
 
       web.setWebChromeClient(new WebChromeClient());
-      web.setWebViewClient(new WebViewClient() {
-        @Override public void onPageFinished(WebView view, String url) {
-          super.onPageFinished(view, url);
-          view.evaluateJavascript(
-            "(()=>{const s=document.getElementById('vk-splash');if(s){s.classList.add('hide');setTimeout(()=>s.remove(),500)}})();",
-            null
-          );
-        }
-      });
+      web.setWebViewClient(new WebViewClient());
 
       setContentView(web);
       web.loadUrl("file:///android_asset/index.html");

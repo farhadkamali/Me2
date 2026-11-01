@@ -3,7 +3,7 @@ name: Build Vam Kamali APKs
 on:
   workflow_dispatch:
   push:
-    branches: ["main"]
+    branches: ["main", "feature/member-registration-phone"]
 
 jobs:
   build:
@@ -35,6 +35,30 @@ jobs:
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: "8.9"
+
+      - name: Set up PHP for API syntax validation
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: "8.2"
+
+      - name: Validate backend PHP syntax
+        run: php -l backend/api/index.php
+
+      - name: Validate app JavaScript syntax
+        run: |
+          python3 - <<'PY'
+          import re
+          from pathlib import Path
+          for path in ["members-app/app/src/main/assets/index.html", "manager-app/app/src/main/assets/index.html"]:
+              html = Path(path).read_text(encoding="utf-8")
+              scripts = re.findall(r"<script>(.*?)</script>", html, flags=re.S)
+              if not scripts:
+                  raise SystemExit(f"No inline script found in {path}")
+              Path("/tmp/check.js").write_text("\\n".join(scripts), encoding="utf-8")
+              import subprocess
+              subprocess.run(["node", "--check", "/tmp/check.js"], check=True)
+              print(f"JavaScript syntax OK: {path}")
+          PY
 
       - name: Build members APK
         working-directory: members-app

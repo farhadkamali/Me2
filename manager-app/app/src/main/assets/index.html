@@ -52,7 +52,8 @@ async function loadPurchaseRequests(){
   box.innerHTML=rows.length?rows.map(x=>{
    const status=x.status==='new'?'جدید':x.status==='contacted'?'پیگیری شده':'بسته شده';
    const date=x.created_at?esc(String(x.created_at)):'—';
-   return '<div class="item"><b>سفارش '+Number(x.id)+' · '+esc(x.full_name)+'</b><p class="muted">آگهی: '+esc(x.ad_title)+' · '+esc(x.bank)+'<br>شماره موبایل: <a href="tel:'+esc(x.phone)+'" dir="ltr">'+esc(x.phone)+'</a><br>آی‌دی تلگرام/روبیکا: <b dir="ltr">'+esc(x.contact_id||'ثبت نشده')+'</b><br>وضعیت: '+status+'<br>زمان ثبت: '+date+'</p></div>';
+   const adDetails='<div class="muted" style="background:#f3f7fc;border:1px solid #e2eaf5;border-radius:12px;padding:12px;margin-top:10px"><b style="color:#1456a7">جزئیات آگهی ثبت‌شده</b><br>عنوان آگهی: '+esc(x.ad_title||'—')+'<br>بانک: '+esc(x.ad_bank||'—')+'<br>مبلغ وام: '+money(x.ad_loan_amount)+' تومان<br>قیمت آگهی: '+money(x.ad_price)+' تومان<br>مدت بازپرداخت: '+esc(x.ad_term_months||'—')+' ماه<br>نرخ سود: '+esc(x.ad_interest_rate||'—')+'<br>توضیحات: '+esc(x.ad_description||'بدون توضیحات')+'</div>';
+   return '<div class="item"><b>سفارش '+Number(x.id)+' · '+esc(x.full_name)+'</b><p class="muted">شماره موبایل: <a href="tel:'+esc(x.phone)+'" dir="ltr">'+esc(x.phone)+'</a><br>آی‌دی تلگرام/روبیکا: <b dir="ltr">'+esc(x.contact_id||'ثبت نشده')+'</b><br>نام کاربری عضو: '+esc(x.username||'—')+'<br>وضعیت: '+status+'<br>زمان ثبت: '+date+'</p>'+adDetails+'</div>';
   }).join(''):'هنوز سفارشی ثبت نشده است.';
  }catch(e){box.textContent='دریافت سفارش‌ها ناموفق بود: '+e.message}
 }

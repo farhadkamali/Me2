@@ -1,4 +1,4 @@
-name: Build Vam Kamali APK
+name: Build Vam Kamali APKs
 
 on:
   workflow_dispatch:
@@ -36,13 +36,24 @@ jobs:
         with:
           gradle-version: "8.9"
 
-      - name: Build single app APK
+      - name: Build members APK
         working-directory: members-app
         run: gradle assembleDebug
 
-      - name: Upload single APK artifact
+      - name: Build manager APK
+        working-directory: manager-app
+        run: gradle assembleDebug
+
+      - name: Upload members APK
         uses: actions/upload-artifact@v4
         with:
-          name: vam-kamali-debug-apk
+          name: vam-kamali-members-apk
           path: members-app/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+
+      - name: Upload manager APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: vam-kamali-manager-apk
+          path: manager-app/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error

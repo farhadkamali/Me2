@@ -65,7 +65,8 @@ function requireAdmin(PDO $pdo): array {
 
 
 function ensureFeatureTables(PDO $pdo): void {
- $pdo->exec("CREATE TABLE IF NOT EXISTS member_inquiries (id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY, user_id BIGINT UNSIGNED NOT NULL, subject VARCHAR(180) NOT NULL, body TEXT NOT NULL, status ENUM('new','answered','closed') NOT NULL DEFAULT 'new', created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP, INDEX(user_id), INDEX(status)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+ $pdo->exec("CREATE TABLE IF NOT EXISTS member_inquiries (id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY, user_id BIGINT UNSIGNED NOT NULL, phone VARCHAR(11) NOT NULL DEFAULT '', subject VARCHAR(180) NOT NULL, body TEXT NOT NULL, status ENUM('new','answered','closed') NOT NULL DEFAULT 'new', created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP, INDEX(user_id), INDEX(status)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+ $cols=$pdo->query("SHOW COLUMNS FROM member_inquiries LIKE 'phone'"); if(!$cols->fetch()) $pdo->exec("ALTER TABLE member_inquiries ADD phone VARCHAR(11) NOT NULL DEFAULT '' AFTER user_id");
  $pdo->exec("CREATE TABLE IF NOT EXISTS member_messages (id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY, member_id BIGINT UNSIGNED NOT NULL, sender_id BIGINT UNSIGNED NOT NULL, body TEXT NOT NULL, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, INDEX(member_id,id)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
 }
 
@@ -166,6 +167,17 @@ if ($action === 'admin-check' && $method === 'GET') {
     }
 }
 
+if ($action === 'password-change' && $method === 'POST') {
+ try {
+  $pdo=database(); $u=authenticatedUser($pdo); $d=requestData();
+  $current=(string)($d['current_password']??''); $next=(string)($d['new_password']??'');
+  if(strlen($next)<8||strlen($next)>200) respond(422,['ok'=>false,'error'=>'invalid_new_password']);
+  $q=$pdo->prepare('SELECT password_hash FROM members WHERE id=? LIMIT 1'); $q->execute([$u['id']]); $row=$q->fetch();
+  if(!$row||!password_verify($current,$row['password_hash'])) respond(401,['ok'=>false,'error'=>'current_password_incorrect']);
+  $q=$pdo->prepare('UPDATE members SET password_hash=? WHERE id=?'); $q->execute([password_hash($next,PASSWORD_DEFAULT),$u['id']]);
+  respond(200,['ok'=>true]);
+ } catch(Throwable $e) { error_log('Vam Kamali password change error: '.$e->getMessage()); respond(503,['ok'=>false,'error'=>'service_unavailable']); }
+}
 if ($action === 'logout' && $method === 'POST') {
     try {
         $token = bearerToken();
@@ -253,7 +265,7 @@ if ($action === 'admin-ad-delete' && $method === 'POST') {
 
 /* Informational requests and member/support messaging only. */
 if ($action === 'my-inquiries' && $method === 'GET') { try {$pdo=database();ensureFeatureTables($pdo);$u=authenticatedUser($pdo);$s=$pdo->prepare("SELECT id,subject,body,status,created_at FROM member_inquiries WHERE user_id=? ORDER BY id DESC");$s->execute([$u['id']]);respond(200,['ok'=>true,'inquiries'=>$s->fetchAll()]);}catch(Throwable $e){respond(503,['ok'=>false,'error'=>'service_unavailable']);} }
-if ($action === 'inquiry-create' && $method === 'POST') { try {$pdo=database();ensureFeatureTables($pdo);$u=authenticatedUser($pdo);$d=requestData();$subject=trim((string)($d['subject']??''));$body=trim((string)($d['body']??''));if($subject===''||mb_strlen($subject)>180||$body===''||mb_strlen($body)>3000)respond(422,['ok'=>false,'error'=>'invalid_inquiry']);$s=$pdo->prepare("INSERT INTO member_inquiries(user_id,subject,body) VALUES(?,?,?)");$s->execute([$u['id'],$subject,$body]);respond(201,['ok'=>true,'id'=>(int)$pdo->lastInsertId()]);}catch(Throwable $e){respond(503,['ok'=>false,'error'=>'service_unavailable']);} }
+if ($action === 'inquiry-create' && $method === 'POST') { try {$pdo=database();ensureFeatureTables($pdo);$u=authenticatedUser($pdo);$d=requestData();$phone=trim((string)($d['phone']??''));$subject=trim((string)($d['subject']??''));$body=trim((string)($d['body']??''));if(!preg_match('/^09[0-9]{9}$/',$phone)||$subject===''||mb_strlen($subject)>180||$body===''||mb_strlen($body)>3000)respond(422,['ok'=>false,'error'=>'invalid_inquiry']);$s=$pdo->prepare("INSERT INTO member_inquiries(user_id,phone,subject,body) VALUES(?,?,?,?)");$s->execute([$u['id'],$phone,$subject,$body]);respond(201,['ok'=>true,'id'=>(int)$pdo->lastInsertId()]);}catch(Throwable $e){respond(503,['ok'=>false,'error'=>'service_unavailable']);} }
 if ($action === 'admin-inquiries' && $method === 'GET') { try {$pdo=database();ensureFeatureTables($pdo);requireAdmin($pdo);$s=$pdo->query("SELECT i.id,i.user_id,i.subject,i.body,i.status,i.created_at,m.username FROM member_inquiries i JOIN members m ON m.id=i.user_id ORDER BY i.id DESC");respond(200,['ok'=>true,'inquiries'=>$s->fetchAll()]);}catch(Throwable $e){respond(503,['ok'=>false,'error'=>'service_unavailable']);} }
 if ($action === 'admin-inquiry-update' && $method === 'POST') { try {$pdo=database();ensureFeatureTables($pdo);requireAdmin($pdo);$d=requestData();$id=(int)($d['id']??0);$status=(string)($d['status']??'');if($id<1||!in_array($status,['answered','closed'],true))respond(422,['ok'=>false,'error'=>'invalid_inquiry_update']);$s=$pdo->prepare("UPDATE member_inquiries SET status=? WHERE id=?");$s->execute([$status,$id]);respond(200,['ok'=>true]);}catch(Throwable $e){respond(503,['ok'=>false,'error'=>'service_unavailable']);} }
 if ($action === 'admin-conversations' && $method === 'GET') { try {$pdo=database();ensureFeatureTables($pdo);requireAdmin($pdo);$s=$pdo->query("SELECT m.id AS member_id,m.username,MAX(x.id) AS last_message_id FROM members m JOIN member_messages x ON x.member_id=m.id GROUP BY m.id,m.username ORDER BY last_message_id DESC");respond(200,['ok'=>true,'conversations'=>$s->fetchAll()]);}catch(Throwable $e){respond(503,['ok'=>false,'error'=>'service_unavailable']);} }

@@ -68,7 +68,8 @@ function ensureFeatureTables(PDO $pdo): void {
  $pdo->exec("CREATE TABLE IF NOT EXISTS member_inquiries (id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY, user_id BIGINT UNSIGNED NOT NULL, phone VARCHAR(11) NOT NULL DEFAULT '', subject VARCHAR(180) NOT NULL, body TEXT NOT NULL, status ENUM('new','answered','closed') NOT NULL DEFAULT 'new', created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP, INDEX(user_id), INDEX(status)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
  $cols=$pdo->query("SHOW COLUMNS FROM member_inquiries LIKE 'phone'"); if(!$cols->fetch()) $pdo->exec("ALTER TABLE member_inquiries ADD phone VARCHAR(11) NOT NULL DEFAULT '' AFTER user_id");
  $pdo->exec("CREATE TABLE IF NOT EXISTS member_messages (id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY, member_id BIGINT UNSIGNED NOT NULL, sender_id BIGINT UNSIGNED NOT NULL, body TEXT NOT NULL, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, INDEX(member_id,id)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
- $pdo->exec("CREATE TABLE IF NOT EXISTS purchase_requests (id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY, user_id BIGINT UNSIGNED NOT NULL, ad_id BIGINT UNSIGNED NOT NULL, full_name VARCHAR(120) NOT NULL, phone VARCHAR(11) NOT NULL, city VARCHAR(80) NOT NULL DEFAULT '', notes TEXT NOT NULL, status ENUM('new','contacted','closed') NOT NULL DEFAULT 'new', created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, INDEX(user_id), INDEX(ad_id), INDEX(status)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+ $pdo->exec("CREATE TABLE IF NOT EXISTS purchase_requests (id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY, user_id BIGINT UNSIGNED NOT NULL, ad_id BIGINT UNSIGNED NOT NULL, full_name VARCHAR(120) NOT NULL, phone VARCHAR(11) NOT NULL, contact_id VARCHAR(160) NOT NULL DEFAULT '', city VARCHAR(80) NOT NULL DEFAULT '', notes TEXT NOT NULL, status ENUM('new','contacted','closed') NOT NULL DEFAULT 'new', created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, INDEX(user_id), INDEX(ad_id), INDEX(status)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+ $cols=$pdo->query("SHOW COLUMNS FROM purchase_requests LIKE 'contact_id'"); if(!$cols->fetch()) $pdo->exec("ALTER TABLE purchase_requests ADD contact_id VARCHAR(160) NOT NULL DEFAULT '' AFTER phone");
 }
 
 function issueToken(PDO $pdo, int $userId): string {
@@ -270,19 +271,20 @@ if ($action === 'purchase-request-create' && $method === 'POST') {
   $pdo=database(); ensureFeatureTables($pdo); $u=authenticatedUser($pdo); $d=requestData();
   $adId=filter_var($d['ad_id']??null,FILTER_VALIDATE_INT);
   $name=trim((string)($d['full_name']??'')); $phone=trim((string)($d['phone']??''));
-  $city=trim((string)($d['city']??'')); $notes=trim((string)($d['notes']??''));
-  if(!$adId||$adId<1||$name===''||mb_strlen($name)>120||!preg_match('/^09[0-9]{9}$/',$phone)||mb_strlen($city)>80||mb_strlen($notes)>1500) respond(422,['ok'=>false,'error'=>'invalid_purchase_request']);
+  $contactId=trim((string)($d['contact_id']??''));
+  $city=''; $notes='';
+  if(!$adId||$adId<1||$name===''||mb_strlen($name)>120||!preg_match('/^09[0-9]{9}$/',$phone)||$contactId===''||mb_strlen($contactId)>160) respond(422,['ok'=>false,'error'=>'invalid_purchase_request']);
   $q=$pdo->prepare('SELECT id FROM ads WHERE id=? AND is_active=1 LIMIT 1'); $q->execute([$adId]);
   if(!$q->fetch()) respond(404,['ok'=>false,'error'=>'ad_not_available']);
-  $q=$pdo->prepare('INSERT INTO purchase_requests(user_id,ad_id,full_name,phone,city,notes) VALUES(?,?,?,?,?,?)');
-  $q->execute([$u['id'],$adId,$name,$phone,$city,$notes]);
+  $q=$pdo->prepare('INSERT INTO purchase_requests(user_id,ad_id,full_name,phone,contact_id,city,notes) VALUES(?,?,?,?,?,?,?)');
+  $q->execute([$u['id'],$adId,$name,$phone,$contactId,$city,$notes]);
   respond(201,['ok'=>true,'id'=>(int)$pdo->lastInsertId()]);
  } catch(Throwable $e) { error_log('Vam Kamali purchase request error: '.$e->getMessage()); respond(503,['ok'=>false,'error'=>'service_unavailable']); }
 }
 if ($action === 'admin-purchase-requests' && $method === 'GET') {
  try {
   $pdo=database(); ensureFeatureTables($pdo); requireAdmin($pdo);
-  $q=$pdo->query('SELECT r.id,r.user_id,r.ad_id,r.full_name,r.phone,r.city,r.notes,r.status,r.created_at,m.username,a.title AS ad_title,a.bank FROM purchase_requests r JOIN members m ON m.id=r.user_id JOIN ads a ON a.id=r.ad_id ORDER BY r.id DESC');
+  $q=$pdo->query('SELECT r.id,r.user_id,r.ad_id,r.full_name,r.phone,r.contact_id,r.city,r.notes,r.status,r.created_at,m.username,a.title AS ad_title,a.bank FROM purchase_requests r JOIN members m ON m.id=r.user_id JOIN ads a ON a.id=r.ad_id ORDER BY r.id DESC');
   respond(200,['ok'=>true,'requests'=>$q->fetchAll()]);
  } catch(Throwable $e) { error_log('Vam Kamali admin purchase requests error: '.$e->getMessage()); respond(503,['ok'=>false,'error'=>'service_unavailable']); }
 }

@@ -54,7 +54,7 @@ header p{font-size:12px;max-width:270px}
 <script>
 const API='https://farhadkamalii.ir/api/';
 let token=sessionStorage.getItem('vk_token')||'';
-async function api(action,method='GET',data=null){const headers={};if(data!==null)headers['Content-Type']='application/json';if(token)headers['Authorization']='Bearer '+token;const response=await fetch(API+'?action='+encodeURIComponent(action.split('?')[0])+(action.includes('?')?'&'+action.split('?')[1]:''),{method,headers,body:data===null?undefined:JSON.stringify(data)});let result={};try{result=await response.json()}catch(e){}if(!response.ok||result.ok===false)throw new Error(result.message||result.error||'request_failed');return result}
+async function api(action,method='GET',data=null){const headers={};if(data!==null)headers['Content-Type']='application/json';if(token)headers['Authorization']='Bearer '+token;const response=await fetch(API+'?action='+encodeURIComponent(action.split('?')[0])+(action.includes('?')?'&'+action.split('?')[1]:''),{method,headers,body:data===null?undefined:JSON.stringify(data)});let result={};try{result=await response.json()}catch(e){}if(!response.ok||result.ok===false)throw new Error((result.message||result.error||'request_failed')+(result.diagnostic?' | '+result.diagnostic:''));return result}
 function showMessage(text,kind=''){const el=document.getElementById('loginMsg');el.textContent=text;el.className='muted '+kind}
 function extractUser(data){return data.user||data.member||data}
 let authMode='login';

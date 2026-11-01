@@ -38,3 +38,7 @@ CREATE TABLE IF NOT EXISTS auth_tokens (
   INDEX idx_auth_user_expiry (user_id, expires_at),
   CONSTRAINT fk_auth_tokens_member FOREIGN KEY (user_id) REFERENCES members(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- One-time upgrade for databases where members already exists without role.
+ALTER TABLE members
+  ADD COLUMN role ENUM('member','admin') NOT NULL DEFAULT 'member' AFTER password_hash;

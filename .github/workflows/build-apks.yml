@@ -3,7 +3,7 @@ name: Build Vam Kamali APKs
 on:
   workflow_dispatch:
   push:
-    branches: ["main"]
+    branches: ["main", "feature/purchase-request-manager-inbox"]
 
 jobs:
   build:

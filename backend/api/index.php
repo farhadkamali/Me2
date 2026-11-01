@@ -63,6 +63,12 @@ function requireAdmin(PDO $pdo): array {
     return $user;
 }
 
+
+function ensureFeatureTables(PDO $pdo): void {
+ $pdo->exec("CREATE TABLE IF NOT EXISTS purchase_requests (id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY, ad_id BIGINT UNSIGNED NOT NULL, user_id BIGINT UNSIGNED NOT NULL, status ENUM('pending','approved','rejected') NOT NULL DEFAULT 'pending', created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP, INDEX(ad_id), INDEX(user_id), INDEX(status)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+ $pdo->exec("CREATE TABLE IF NOT EXISTS app_messages (id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY, purchase_id BIGINT UNSIGNED NOT NULL, sender_id BIGINT UNSIGNED NOT NULL, body TEXT NOT NULL, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, INDEX(purchase_id)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+}
+
 function issueToken(PDO $pdo, int $userId): string {
     $token = bin2hex(random_bytes(32));
     $hash = hash('sha256', $token);
@@ -243,5 +249,13 @@ if ($action === 'admin-ad-delete' && $method === 'POST') {
         respond(503, ['ok'=>false, 'error'=>'service_unavailable']);
     }
 }
+
+
+/* Purchase workflow and in-app messaging */
+if ($action === 'purchase-create' && $method === 'POST') { try { $pdo=database(); ensureFeatureTables($pdo); $u=authenticatedUser($pdo); $d=requestData(); $ad=(int)($d['ad_id']??0); if($ad<1) respond(422,['ok'=>false,'error'=>'invalid_ad_id']); $s=$pdo->prepare("SELECT id FROM ads WHERE id=? AND is_active=1"); $s->execute([$ad]); if(!$s->fetch()) respond(404,['ok'=>false,'error'=>'ad_not_available']); $s=$pdo->prepare("SELECT id FROM purchase_requests WHERE ad_id=? AND status='approved' LIMIT 1"); $s->execute([$ad]); if($s->fetch()) respond(409,['ok'=>false,'error'=>'ad_already_sold']); $s=$pdo->prepare("SELECT id FROM purchase_requests WHERE ad_id=? AND user_id=? AND status='pending' LIMIT 1"); $s->execute([$ad,$u['id']]); $old=$s->fetch(); if($old) respond(200,['ok'=>true,'purchase_id'=>(int)$old['id']]); $s=$pdo->prepare("INSERT INTO purchase_requests(ad_id,user_id,status) VALUES(?,?,'pending')"); $s->execute([$ad,$u['id']]); respond(201,['ok'=>true,'purchase_id'=>(int)$pdo->lastInsertId()]); } catch(Throwable $e){ error_log('purchase-create '.$e->getMessage()); respond(503,['ok'=>false,'error'=>'service_unavailable']); } }
+if ($action === 'admin-purchases' && $method === 'GET') { try { $pdo=database(); ensureFeatureTables($pdo); requireAdmin($pdo); $s=$pdo->query("SELECT p.id,p.status,p.created_at,a.title,m.username FROM purchase_requests p JOIN ads a ON a.id=p.ad_id JOIN members m ON m.id=p.user_id ORDER BY p.id DESC"); respond(200,['ok'=>true,'purchases'=>$s->fetchAll()]); } catch(Throwable $e){ respond(503,['ok'=>false,'error'=>'service_unavailable']); } }
+if ($action === 'admin-purchase-update' && $method === 'POST') { try { $pdo=database(); ensureFeatureTables($pdo); requireAdmin($pdo); $d=requestData(); $id=(int)($d['id']??0); $status=(string)($d['status']??''); if($id<1||!in_array($status,['approved','rejected'],true)) respond(422,['ok'=>false,'error'=>'invalid_purchase_update']); $s=$pdo->prepare("SELECT ad_id FROM purchase_requests WHERE id=?"); $s->execute([$id]); $p=$s->fetch(); if(!$p) respond(404,['ok'=>false,'error'=>'purchase_not_found']); if($status==='approved'){ $s=$pdo->prepare("SELECT id FROM purchase_requests WHERE ad_id=? AND status='approved' AND id<>? LIMIT 1"); $s->execute([$p['ad_id'],$id]); if($s->fetch()) respond(409,['ok'=>false,'error'=>'ad_already_sold']); } $s=$pdo->prepare("UPDATE purchase_requests SET status=? WHERE id=?"); $s->execute([$status,$id]); respond(200,['ok'=>true]); } catch(Throwable $e){ respond(503,['ok'=>false,'error'=>'service_unavailable']); } }
+if ($action === 'messages' && $method === 'GET') { try { $pdo=database(); ensureFeatureTables($pdo); $u=authenticatedUser($pdo); $pid=(int)($_GET['purchase_id']??0); $s=$pdo->prepare("SELECT user_id FROM purchase_requests WHERE id=?"); $s->execute([$pid]); $p=$s->fetch(); if(!$p||($u['role']!=='admin'&&(int)$p['user_id']!==(int)$u['id'])) respond(403,['ok'=>false,'error'=>'message_access_denied']); $s=$pdo->prepare("SELECT id,sender_id,body,created_at FROM app_messages WHERE purchase_id=? ORDER BY id"); $s->execute([$pid]); respond(200,['ok'=>true,'messages'=>$s->fetchAll()]); } catch(Throwable $e){ respond(503,['ok'=>false,'error'=>'service_unavailable']); } }
+if ($action === 'message-send' && $method === 'POST') { try { $pdo=database(); ensureFeatureTables($pdo); $u=authenticatedUser($pdo); $d=requestData(); $pid=(int)($d['purchase_id']??0); $body=trim((string)($d['body']??'')); if($pid<1||$body===''||mb_strlen($body)>3000) respond(422,['ok'=>false,'error'=>'invalid_message']); $s=$pdo->prepare("SELECT user_id FROM purchase_requests WHERE id=?"); $s->execute([$pid]); $p=$s->fetch(); if(!$p||($u['role']!=='admin'&&(int)$p['user_id']!==(int)$u['id'])) respond(403,['ok'=>false,'error'=>'message_access_denied']); $s=$pdo->prepare("INSERT INTO app_messages(purchase_id,sender_id,body) VALUES(?,?,?)"); $s->execute([$pid,$u['id'],$body]); respond(201,['ok'=>true]); } catch(Throwable $e){ respond(503,['ok'=>false,'error'=>'service_unavailable']); } }
 
 respond(405, ['ok'=>false, 'error'=>'not_found_or_method_not_allowed']);

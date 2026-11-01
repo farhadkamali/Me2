@@ -51,7 +51,7 @@ function bearerToken(): string {
 function authenticatedUser(PDO $pdo): array {
     $token = bearerToken();
     if ($token === '') respond(401, ['ok'=>false, 'error'=>'authentication_required']);
-    $stmt = $pdo->prepare('SELECT m.id, m.username, m.role FROM auth_tokens t JOIN members m ON m.id=t.user_id WHERE t.token_hash=? AND t.expires_at>UTC_TIMESTAMP() LIMIT 1');
+    $stmt = $pdo->prepare('SELECT m.id, m.username, m.first_name, m.last_name, m.phone, m.role FROM auth_tokens t JOIN members m ON m.id=t.user_id WHERE t.token_hash=? AND t.expires_at>UTC_TIMESTAMP() LIMIT 1');
     $stmt->execute([hash('sha256', $token)]);
     $user = $stmt->fetch();
     if (!$user) respond(401, ['ok'=>false, 'error'=>'invalid_or_expired_token']);
@@ -101,22 +101,28 @@ if ($action === 'dbcheck' && $method === 'GET') {
 
 if ($action === 'register' && $method === 'POST') {
     $d = requestData();
-    $username = trim((string)($d['username'] ?? ''));
+    $firstName = trim((string)($d['first_name'] ?? ''));
+    $lastName = trim((string)($d['last_name'] ?? ''));
+    $phone = trim((string)($d['phone'] ?? ''));
     $password = (string)($d['password'] ?? '');
-    if (!preg_match('/^[a-zA-Z0-9_]{4,24}$/', $username)) {
-        respond(422, ['ok'=>false, 'error'=>'invalid_username', 'message'=>'نام کاربری باید ۴ تا ۲۴ حرف انگلیسی، عدد یا زیرخط باشد.']);
+    if ($firstName === '' || $lastName === '' || mb_strlen($firstName) > 60 || mb_strlen($lastName) > 60) {
+        respond(422, ['ok'=>false, 'error'=>'invalid_name', 'message'=>'نام و نام خانوادگی الزامی و حداکثر ۶۰ نویسه هستند.']);
+    }
+    if (!preg_match('/^09[0-9]{9}$/', $phone)) {
+        respond(422, ['ok'=>false, 'error'=>'invalid_phone', 'message'=>'شماره موبایل باید ۱۱ رقم و با ۰۹ شروع شود.']);
     }
     if (strlen($password) < 8 || strlen($password) > 200) {
         respond(422, ['ok'=>false, 'error'=>'invalid_password', 'message'=>'رمز عبور باید حداقل ۸ نویسه باشد.']);
     }
     try {
         $pdo = database();
-        $stmt = $pdo->prepare('INSERT INTO members (username, password_hash, role) VALUES (?, ?, \'member\')');
-        $stmt->execute([$username, password_hash($password, PASSWORD_DEFAULT)]);
+        // Keep username populated with the phone for compatibility with existing admin/support screens.
+        $stmt = $pdo->prepare('INSERT INTO members (username, first_name, last_name, phone, password_hash, role) VALUES (?, ?, ?, ?, ?, \'member\')');
+        $stmt->execute([$phone, $firstName, $lastName, $phone, password_hash($password, PASSWORD_DEFAULT)]);
         $id = (int)$pdo->lastInsertId();
-        respond(201, ['ok'=>true, 'user'=>['id'=>$id, 'username'=>$username, 'role'=>'member'], 'token'=>issueToken($pdo, $id)]);
+        respond(201, ['ok'=>true, 'user'=>['id'=>$id, 'username'=>$phone, 'first_name'=>$firstName, 'last_name'=>$lastName, 'phone'=>$phone, 'role'=>'member'], 'token'=>issueToken($pdo, $id)]);
     } catch (PDOException $e) {
-        if ($e->getCode() === '23000') respond(409, ['ok'=>false, 'error'=>'username_taken', 'message'=>'این نام کاربری قبلاً ثبت شده است.']);
+        if ($e->getCode() === '23000') respond(409, ['ok'=>false, 'error'=>'phone_taken', 'message'=>'این شماره موبایل قبلاً ثبت شده است.']);
         error_log('Vam Kamali API register error: '.$e->getMessage());
         respond(503, ['ok'=>false, 'error'=>'database_unavailable']);
     } catch (Throwable $e) {
@@ -127,30 +133,32 @@ if ($action === 'register' && $method === 'POST') {
 
 if ($action === 'login' && $method === 'POST') {
     $d = requestData();
-    $username = trim((string)($d['username'] ?? ''));
+    $phone = trim((string)($d['phone'] ?? ''));
     $password = (string)($d['password'] ?? '');
+    if (!preg_match('/^09[0-9]{9}$/', $phone)) {
+        respond(422, ['ok'=>false, 'error'=>'invalid_phone', 'message'=>'شماره موبایل معتبر نیست.']);
+    }
     try {
         $pdo = database();
-        $stmt = $pdo->prepare('SELECT id, username, password_hash, role FROM members WHERE username = ? LIMIT 1');
-        $stmt->execute([$username]);
+        $stmt = $pdo->prepare('SELECT id, username, first_name, last_name, phone, password_hash, role FROM members WHERE phone = ? LIMIT 1');
+        $stmt->execute([$phone]);
         $user = $stmt->fetch();
         if (!$user || !password_verify($password, $user['password_hash'])) {
-            respond(401, ['ok'=>false, 'error'=>'invalid_credentials', 'message'=>'نام کاربری یا رمز عبور اشتباه است.']);
+            respond(401, ['ok'=>false, 'error'=>'invalid_credentials', 'message'=>'شماره موبایل یا رمز عبور اشتباه است.']);
         }
         $token = issueToken($pdo, (int)$user['id']);
-        respond(200, ['ok'=>true, 'user'=>['id'=>(int)$user['id'], 'username'=>$user['username'], 'role'=>$user['role']], 'token'=>$token]);
+        respond(200, ['ok'=>true, 'user'=>['id'=>(int)$user['id'], 'username'=>$user['username'], 'first_name'=>$user['first_name'], 'last_name'=>$user['last_name'], 'phone'=>$user['phone'], 'role'=>$user['role']], 'token'=>$token]);
     } catch (Throwable $e) {
         error_log('Vam Kamali API login error: '.$e->getMessage());
         respond(503, ['ok'=>false, 'error'=>'service_unavailable']);
     }
 }
 
-
 if ($action === 'me' && $method === 'GET') {
     try {
         $pdo = database();
         $user = authenticatedUser($pdo);
-        respond(200, ['ok'=>true, 'user'=>['id'=>(int)$user['id'], 'username'=>$user['username'], 'role'=>$user['role']]]);
+        respond(200, ['ok'=>true, 'user'=>['id'=>(int)$user['id'], 'username'=>$user['username'], 'first_name'=>$user['first_name'], 'last_name'=>$user['last_name'], 'phone'=>$user['phone'], 'role'=>$user['role']]]);
     } catch (Throwable $e) {
         error_log('Vam Kamali API me error: '.$e->getMessage());
         respond(503, ['ok'=>false, 'error'=>'service_unavailable']);
@@ -161,7 +169,7 @@ if ($action === 'admin-check' && $method === 'GET') {
     try {
         $pdo = database();
         $user = requireAdmin($pdo);
-        respond(200, ['ok'=>true, 'admin'=>true, 'user'=>['id'=>(int)$user['id'], 'username'=>$user['username'], 'role'=>'admin']]);
+        respond(200, ['ok'=>true, 'admin'=>true, 'user'=>['id'=>(int)$user['id'], 'username'=>$user['username'], 'first_name'=>$user['first_name'], 'last_name'=>$user['last_name'], 'phone'=>$user['phone'], 'role'=>'admin']]);
     } catch (Throwable $e) {
         error_log('Vam Kamali API admin check error: '.$e->getMessage());
         respond(503, ['ok'=>false, 'error'=>'service_unavailable']);

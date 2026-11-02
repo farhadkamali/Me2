@@ -312,8 +312,46 @@ if ($action === 'my-inquiries' && $method === 'GET') { try {$pdo=database();ensu
 if ($action === 'inquiry-create' && $method === 'POST') { try {$pdo=database();ensureFeatureTables($pdo);$u=authenticatedUser($pdo);$d=requestData();$phone=trim((string)($d['phone']??''));$subject=trim((string)($d['subject']??''));$body=trim((string)($d['body']??''));if(!preg_match('/^09[0-9]{9}$/',$phone)||$subject===''||mb_strlen($subject)>180||$body===''||mb_strlen($body)>3000)respond(422,['ok'=>false,'error'=>'invalid_inquiry']);$s=$pdo->prepare("INSERT INTO member_inquiries(user_id,phone,subject,body) VALUES(?,?,?,?)");$s->execute([$u['id'],$phone,$subject,$body]);respond(201,['ok'=>true,'id'=>(int)$pdo->lastInsertId()]);}catch(Throwable $e){respond(503,['ok'=>false,'error'=>'service_unavailable']);} }
 if ($action === 'admin-inquiries' && $method === 'GET') { try {$pdo=database();ensureFeatureTables($pdo);requireAdmin($pdo);$s=$pdo->query("SELECT i.id,i.user_id,i.subject,i.body,i.status,i.created_at,m.username FROM member_inquiries i JOIN members m ON m.id=i.user_id ORDER BY i.id DESC");respond(200,['ok'=>true,'inquiries'=>$s->fetchAll()]);}catch(Throwable $e){respond(503,['ok'=>false,'error'=>'service_unavailable']);} }
 if ($action === 'admin-inquiry-update' && $method === 'POST') { try {$pdo=database();ensureFeatureTables($pdo);requireAdmin($pdo);$d=requestData();$id=(int)($d['id']??0);$status=(string)($d['status']??'');if($id<1||!in_array($status,['answered','closed'],true))respond(422,['ok'=>false,'error'=>'invalid_inquiry_update']);$s=$pdo->prepare("UPDATE member_inquiries SET status=? WHERE id=?");$s->execute([$status,$id]);respond(200,['ok'=>true]);}catch(Throwable $e){respond(503,['ok'=>false,'error'=>'service_unavailable']);} }
-if ($action === 'admin-conversations' && $method === 'GET') { try {$pdo=database();ensureFeatureTables($pdo);requireAdmin($pdo);$s=$pdo->query("SELECT m.id AS member_id,m.username,MAX(x.id) AS last_message_id FROM members m JOIN member_messages x ON x.member_id=m.id GROUP BY m.id,m.username ORDER BY last_message_id DESC");respond(200,['ok'=>true,'conversations'=>$s->fetchAll()]);}catch(Throwable $e){respond(503,['ok'=>false,'error'=>'service_unavailable']);} }
-if ($action === 'messages' && $method === 'GET') { try {$pdo=database();ensureFeatureTables($pdo);$u=authenticatedUser($pdo);$mid=$u['role']==='admin'?(int)($_GET['member_id']??0):(int)$u['id'];if($mid<1||($u['role']!=='admin'&&$mid!==(int)$u['id']))respond(403,['ok'=>false,'error'=>'message_access_denied']);$s=$pdo->prepare("SELECT id,member_id,sender_id,body,created_at FROM member_messages WHERE member_id=? ORDER BY id ASC LIMIT 300");$s->execute([$mid]);respond(200,['ok'=>true,'messages'=>$s->fetchAll()]);}catch(Throwable $e){respond(503,['ok'=>false,'error'=>'service_unavailable']);} }
-if ($action === 'message-send' && $method === 'POST') { try {$pdo=database();ensureFeatureTables($pdo);$u=authenticatedUser($pdo);$d=requestData();$mid=$u['role']==='admin'?(int)($d['member_id']??0):(int)$u['id'];$body=trim((string)($d['body']??''));if($mid<1||$body===''||mb_strlen($body)>3000)respond(422,['ok'=>false,'error'=>'invalid_message']);$s=$pdo->prepare("SELECT id FROM members WHERE id=?");$s->execute([$mid]);if(!$s->fetch())respond(404,['ok'=>false,'error'=>'member_not_found']);$s=$pdo->prepare("INSERT INTO member_messages(member_id,sender_id,body) VALUES(?,?,?)");$s->execute([$mid,$u['id'],$body]);respond(201,['ok'=>true]);}catch(Throwable $e){respond(503,['ok'=>false,'error'=>'service_unavailable']);} }
+if ($action === 'admin-conversations' && $method === 'GET') {
+ try {
+  $pdo=database();
+  ensureFeatureTables($pdo);
+  requireAdmin($pdo);
+  $s=$pdo->query("SELECT m.id AS member_id,m.username,x.id AS last_message_id,x.sender_id AS last_sender_id FROM members m JOIN member_messages x ON x.id=(SELECT MAX(mm.id) FROM member_messages mm WHERE mm.member_id=m.id) ORDER BY x.id DESC");
+  respond(200,['ok'=>true,'conversations'=>$s->fetchAll()]);
+ } catch(Throwable $e) {
+  error_log('Vam Kamali admin conversations error: '.$e->getMessage().' | '.$e->getFile().':'.$e->getLine());
+  respond(503,['ok'=>false,'error'=>'message_inbox_unavailable']);
+ }
+}
+if ($action === 'messages' && $method === 'GET') {
+ try {
+  $pdo=database();ensureFeatureTables($pdo);$u=authenticatedUser($pdo);
+  $mid=$u['role']==='admin'?(int)($_GET['member_id']??0):(int)$u['id'];
+  if($mid<1||($u['role']!=='admin'&&$mid!==(int)$u['id']))respond(403,['ok'=>false,'error'=>'message_access_denied']);
+  $s=$pdo->prepare("SELECT id,member_id,sender_id,body,created_at FROM member_messages WHERE member_id=? ORDER BY id ASC LIMIT 300");
+  $s->execute([$mid]);
+  respond(200,['ok'=>true,'messages'=>$s->fetchAll()]);
+ } catch(Throwable $e) {
+  error_log('Vam Kamali messages error: '.$e->getMessage().' | '.$e->getFile().':'.$e->getLine());
+  respond(503,['ok'=>false,'error'=>'messages_unavailable']);
+ }
+}
+if ($action === 'message-send' && $method === 'POST') {
+ try {
+  $pdo=database();ensureFeatureTables($pdo);$u=authenticatedUser($pdo);$d=requestData();
+  $mid=$u['role']==='admin'?(int)($d['member_id']??0):(int)$u['id'];
+  $body=trim((string)($d['body']??''));
+  if($mid<1||$body===''||mb_strlen($body)>3000)respond(422,['ok'=>false,'error'=>'invalid_message']);
+  $s=$pdo->prepare("SELECT id FROM members WHERE id=?");$s->execute([$mid]);
+  if(!$s->fetch())respond(404,['ok'=>false,'error'=>'member_not_found']);
+  $s=$pdo->prepare("INSERT INTO member_messages(member_id,sender_id,body) VALUES(?,?,?)");
+  $s->execute([$mid,$u['id'],$body]);
+  respond(201,['ok'=>true,'id'=>(int)$pdo->lastInsertId()]);
+ } catch(Throwable $e) {
+  error_log('Vam Kamali message send error: '.$e->getMessage().' | '.$e->getFile().':'.$e->getLine());
+  respond(503,['ok'=>false,'error'=>'message_send_unavailable']);
+ }
+}
 
 respond(405, ['ok'=>false, 'error'=>'not_found_or_method_not_allowed']);

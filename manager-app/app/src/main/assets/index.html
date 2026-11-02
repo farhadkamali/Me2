@@ -108,7 +108,7 @@ async function loadSupportMessages(){
  if(!selectedSupportMember)return;
  const box=document.getElementById('supportMessages');
  try{
-  const r=await api('messages?member_id='+selectedSupportMember);
+  const r=await api('messages&member_id='+selectedSupportMember);
   const rows=r.messages||[];
   box.innerHTML=rows.map(x=>'<div class="item"><b>'+(Number(x.sender_id)===selectedSupportMember?'عضو':'مدیر')+':</b><p>'+esc(x.body)+'</p><small class="muted">'+esc(x.created_at||'')+'</small></div>').join('')||'هنوز پیامی در این گفتگو نیست.';
   const latest=rows.length?Number(rows[rows.length-1].id):0;

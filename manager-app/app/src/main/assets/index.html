@@ -38,7 +38,7 @@ const API='https://farhadkamalii.ir/api/';
 let token=sessionStorage.getItem('vk_manager_token')||'',ads=[];
 async function api(action,method='GET',data=null){const h={};if(token)h.Authorization='Bearer '+token;if(data!==null)h['Content-Type']='application/json';const r=await fetch(API+'?action='+action,{method,headers:h,body:data===null?undefined:JSON.stringify(data)});let j={};try{j=await r.json()}catch(e){}if(!r.ok||j.ok===false)throw new Error(j.error||j.message||('http_'+r.status));return j}
 function msg(id,t,cls='muted'){const e=document.getElementById(id);e.textContent=t;e.className=cls}
-async function login(){const b=document.getElementById('loginBtn');b.disabled=true;msg('loginMsg','در حال بررسی حساب…');try{const a=await api('login','POST',{username:document.getElementById('username').value.trim(),password:document.getElementById('password').value});token=a.token||'';if(!token)throw Error('no_token');sessionStorage.setItem('vk_manager_token',token);const p=await api('me');if((p.user||{}).role!=='admin')throw Error('admin_access_required');await api('admin-check');openApp(p.user)}catch(e){token='';sessionStorage.removeItem('vk_manager_token');const m=e.message==='admin_access_required'?'این حساب دسترسی مدیر ندارد.':e.message==='invalid_credentials'?'نام کاربری یا رمز عبور اشتباه است.':'ورود انجام نشد: '+e.message;msg('loginMsg',m,'muted error')}finally{b.disabled=false}}
+async function login(){const b=document.getElementById('loginBtn'),username=document.getElementById('username').value.trim(),password=document.getElementById('password').value;if(!username||!password){msg('loginMsg','نام کاربری و رمز عبور را وارد کنید.','muted error');return}b.disabled=true;msg('loginMsg','در حال بررسی حساب…');try{const a=await api('login','POST',{username,password});token=a.token||'';if(!token)throw Error('سرور توکن ورود ارسال نکرد.');sessionStorage.setItem('vk_manager_token',token);const p=await api('me');if((p.user||{}).role!=='admin')throw Error('این حساب دسترسی مدیر ندارد.');await api('admin-check');openApp(p.user)}catch(e){token='';sessionStorage.removeItem('vk_manager_token');msg('loginMsg','ورود انجام نشد: '+(e&&e.message?e.message:'خطای ناشناخته؛ اتصال اینترنت را بررسی کنید.'),'muted error')}finally{b.disabled=false}}
 function openApp(u){document.getElementById('login').classList.add('hidden');document.getElementById('app').classList.remove('hidden');document.getElementById('welcome').textContent='  مدیر: '+(u.username||'');refreshAll()}
 async function refreshAll(){await loadAds();await loadPurchaseRequests();if(!document.getElementById('support').classList.contains('hidden'))await loadSupportConversations()}
 async function loadAds(){const box=document.getElementById('adsList');try{const r=await api('admin-ads');ads=r.ads||[];box.innerHTML=ads.length?ads.map(a=>'<div class="item"><b>'+esc(a.title)+'</b><p class="muted">'+esc(a.bank)+' · '+money(a.loan_amount)+' تومان · '+money(a.price)+' تومان<br>بازپرداخت: '+esc(a.term_months)+' ماه · سود: '+esc(a.interest_rate||'—')+'<br>وضعیت: '+(Number(a.is_active)===1?'فعال':'غیرفعال')+'</p><button class="btn secondary" onclick="editAd('+Number(a.id)+')">ویرایش</button>'+(Number(a.is_active)===1?'<button class="btn danger" onclick="deactivateAd('+Number(a.id)+')">غیرفعال‌کردن</button>':'')+'</div>').join(''):'آگهی‌ای در سرور ثبت نشده است.'}catch(e){box.textContent='خطا در دریافت آگهی‌ها: '+e.message}}
@@ -68,9 +68,14 @@ function editAd(id){const a=ads.find(x=>Number(x.id)===id);if(!a)return;tab('for
 function digits(v){return String(v||'').replace(/\D/g,'')}function money(v){return digits(v).replace(/\B(?=(\d{3})+(?!\d))/g,'/')}
 document.querySelectorAll('.money').forEach(e=>e.addEventListener('input',()=>e.value=money(e.value)));
 async function saveAd(ev){ev.preventDefault();const d={id:Number(document.getElementById('adId').value)||0,title:document.getElementById('adTitle').value.trim(),bank:document.getElementById('adBank').value.trim(),loan_amount:Number(digits(document.getElementById('adLoan').value)),price:Number(digits(document.getElementById('adPrice').value)),term_months:Number(document.getElementById('adTerm').value),interest_rate:document.getElementById('adInterest').value.trim(),description:document.getElementById('adDesc').value.trim()};try{await api('admin-ad-save','POST',d);msg('formMsg','آگهی در پایگاه داده سرور ذخیره شد.','muted ok');resetForm();await loadAds();tab('ads',document.querySelector('[data-tab="ads"]'))}catch(e){msg('formMsg','ذخیره انجام نشد: '+e.message,'muted error')}}
-async function deactivateAd(id){if(!confirm('آگهی از فهرست فعال خارج شود؟ اطلاعات آن حذف نمی‌شود.'))return;try{await api('admin-ad-dellet selectedSupportMember=0;
+async function deactivateAd(id){
+ if(!confirm('آگهی از فهرست فعال خارج شود؟ اطلاعات آن حذف نمی‌شود.'))return;
+ try{await api('admin-ad-delete','POST',{id});await loadAds()}
+ catch(e){alert('غیرفعال‌سازی انجام نشد: '+e.message)}
+}
+let selectedSupportMember=0;
 let supportConversationsCache=[];
-function supportSeenKey(id){return 'vk_support_seen_'+Number(id)}
+function supportSeenKey(id){return 'vk_manager_seen_message_'+Number(id)}
 async function loadSupportConversations(){
  const box=document.getElementById('supportConversations');
  try{
@@ -79,10 +84,10 @@ async function loadSupportConversations(){
   box.innerHTML=supportConversationsCache.length?supportConversationsCache.map(x=>{
    const id=Number(x.member_id),last=Number(x.last_message_id)||0;
    const seen=Number(localStorage.getItem(supportSeenKey(id))||0);
-   const fresh=last>seen;
+   const fresh=Number(x.last_sender_id)===id&&last>seen;
    return '<div class="item"><div style="display:flex;align-items:center;justify-content:space-between;gap:8px"><b>'+esc(x.username)+'</b>'+(fresh?'<span class="tag" style="background:#fff0f0;color:#b42318">پیام جدید</span>':'<span class="tag">گفتگو</span>')+'</div><p class="muted">شناسه عضو: '+id+'</p><button class="btn secondary" onclick="openSupportThread('+id+')">مشاهده گفتگو</button></div>';
-  }).join(''):'هنوز گفتگویی ثبت نشده است.';
- }catch(e){box.textContent='دریافت صندوق پیام‌ها ناموفق بود.'}
+  }).join(''):'هنوز پیامی از اعضا دریافت نشده است.';
+ }catch(e){box.textContent='دریافت فهرست پیام‌ها ناموفق بود: '+e.message}
 }
 async function openSupportThread(id){
  selectedSupportMember=Number(id);
@@ -101,26 +106,28 @@ async function backToSupportList(){
 }
 async function loadSupportMessages(){
  if(!selectedSupportMember)return;
+ const box=document.getElementById('supportMessages');
  try{
   const r=await api('messages?member_id='+selectedSupportMember);
   const rows=r.messages||[];
-  document.getElementById('supportMessages').innerHTML=rows.map(x=>'<p><b>'+(Number(x.sender_id)===selectedSupportMember?'عضو':'مدیر')+':</b> '+esc(x.body)+'</p>').join('')||'هنوز پیامی نیست.';
-  const latest=supportConversationsCache.find(x=>Number(x.member_id)===selectedSupportMember);
-  if(latest)localStorage.setItem(supportSeenKey(selectedSupportMember),String(Number(latest.last_message_id)||0));
- }catch(e){document.getElementById('supportMessages').textContent='دریافت پیام‌ها ناموفق بود.'}
+  box.innerHTML=rows.map(x=>'<div class="item"><b>'+(Number(x.sender_id)===selectedSupportMember?'عضو':'مدیر')+':</b><p>'+esc(x.body)+'</p><small class="muted">'+esc(x.created_at||'')+'</small></div>').join('')||'هنوز پیامی در این گفتگو نیست.';
+  const latest=rows.length?Number(rows[rows.length-1].id):0;
+  if(latest)localStorage.setItem(supportSeenKey(selectedSupportMember),String(latest));
+ }catch(e){box.textContent='دریافت پیام‌های این عضو ناموفق بود: '+e.message}
 }
 async function sendSupportReply(){
  const el=document.getElementById('supportReply'),body=el.value.trim();
- if(!selectedSupportMember||!body)return;
+ if(!selectedSupportMember||!body){document.getElementById('supportStatus').textContent='ابتدا متن پاسخ را بنویسید.';return}
+ const btn=document.querySelector('#supportThread button.btn:not(.secondary)');
+ if(btn)btn.disabled=true;
  try{
   await api('message-send','POST',{member_id:selectedSupportMember,body});
   el.value='';
-  document.getElementById('supportStatus').textContent='پاسخ ارسال شد.';
-  await loadSupportConversations();
-  const latest=supportConversationsCache.find(x=>Number(x.member_id)===selectedSupportMember);
-  if(latest)localStorage.setItem(supportSeenKey(selectedSupportMember),String(Number(latest.last_message_id)||0));
+  document.getElementById('supportStatus').textContent='پاسخ با موفقیت ارسال شد.';
   await loadSupportMessages();
- }catch(e){document.getElementById('supportStatus').textContent='ارسال پاسخ ناموفق بود.'}
+  await loadSupportConversations();
+ }catch(e){document.getElementById('supportStatus').textContent='ارسال پاسخ ناموفق بود: '+e.message}
+ finally{if(btn)btn.disabled=false}
 }
 function esc(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
 async function logout(){try{await api('logout','POST',{})}catch(e){}token='';sessionStorage.removeItem('vk_manager_token');location.reload()}

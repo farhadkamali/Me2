@@ -13,8 +13,6 @@ import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.graphics.Color;
 
-import androidx.core.app.ActivityCompat;
-
 import com.google.firebase.messaging.FirebaseMessaging;
 
 import org.json.JSONObject;
@@ -48,8 +46,7 @@ public class MainActivity extends Activity {
   private void requestNotificationPermission() {
     if (Build.VERSION.SDK_INT >= 33 &&
         checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
-      ActivityCompat.requestPermissions(this,
-          new String[]{Manifest.permission.POST_NOTIFICATIONS}, 701);
+      requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, 701);
     }
   }
 

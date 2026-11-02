@@ -74,20 +74,22 @@ function supportSeenKey(id){return 'vk_support_seen_'+Number(id)}
 async function loadSupportConversations(){
  const box=document.getElementById('supportConversations');
  try{
-  const r=await api('admin-conversations');supportConversationsCache=r.conversations||[];
+  const r=await api('admin-conversations');
+  supportConversationsCache=r.conversations||[];
   box.innerHTML=supportConversationsCache.length?supportConversationsCache.map(x=>{
    const id=Number(x.member_id),last=Number(x.last_message_id)||0;
    const seen=Number(localStorage.getItem(supportSeenKey(id))||0);
    const fresh=last>seen;
-   return '<div class="item"><div style="display:flex;align-items:center;justify-content:space-between;gap:8px"><b>'+esc(x.username)+'</b>'+(fresh?'<span class="tag" style="background:#fff0f0;color:#b42318">پیام جدید</span>':'<span class="tag">گفتگو</span>')+'</div><p class="muted">شناسه عضو: '+id+'</p><button class="btn secondary" onclick="openSupportThread('+id+',\\''+esc(x.username).replace(/\\\\'/g,'&#39;')+'\\')">مشاهده گفتگو</button></div>';
+   return '<div class="item"><div style="display:flex;align-items:center;justify-content:space-between;gap:8px"><b>'+esc(x.username)+'</b>'+(fresh?'<span class="tag" style="background:#fff0f0;color:#b42318">پیام جدید</span>':'<span class="tag">گفتگو</span>')+'</div><p class="muted">شناسه عضو: '+id+'</p><button class="btn secondary" onclick="openSupportThread('+id+')">مشاهده گفتگو</button></div>';
   }).join(''):'هنوز گفتگویی ثبت نشده است.';
  }catch(e){box.textContent='دریافت صندوق پیام‌ها ناموفق بود.'}
 }
-async function openSupportThread(id,username){
+async function openSupportThread(id){
  selectedSupportMember=Number(id);
+ const member=supportConversationsCache.find(x=>Number(x.member_id)===selectedSupportMember);
  document.getElementById('supportConversations').classList.add('hidden');
  document.getElementById('supportThread').classList.remove('hidden');
- document.getElementById('supportMemberTitle').textContent='گفتگو با '+username;
+ document.getElementById('supportMemberTitle').textContent='گفتگو با '+(member?member.username:'عضو');
  document.getElementById('supportMessages').textContent='در حال دریافت پیام‌ها…';
  await loadSupportMessages();
 }
@@ -108,16 +110,17 @@ async function loadSupportMessages(){
  }catch(e){document.getElementById('supportMessages').textContent='دریافت پیام‌ها ناموفق بود.'}
 }
 async function sendSupportReply(){
- const el=document.getElementById('supportReply'),body=el.value.trim();if(!selectedSupportMember||!body)return;
+ const el=document.getElementById('supportReply'),body=el.value.trim();
+ if(!selectedSupportMember||!body)return;
  try{
   await api('message-send','POST',{member_id:selectedSupportMember,body});
-  el.value='';document.getElementById('supportStatus').textContent='پاسخ ارسال شد.';
+  el.value='';
+  document.getElementById('supportStatus').textContent='پاسخ ارسال شد.';
   await loadSupportConversations();
   const latest=supportConversationsCache.find(x=>Number(x.member_id)===selectedSupportMember);
   if(latest)localStorage.setItem(supportSeenKey(selectedSupportMember),String(Number(latest.last_message_id)||0));
   await loadSupportMessages();
  }catch(e){document.getElementById('supportStatus').textContent='ارسال پاسخ ناموفق بود.'}
-}catch(e){document.getElementById('supportStatus').textContent='ارسال پاسخ ناموفق بود.'}
 }
 function esc(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
 async function logout(){try{await api('logout','POST',{})}catch(e){}token='';sessionStorage.removeItem('vk_manager_token');location.reload()}

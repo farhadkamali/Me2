@@ -30,7 +30,7 @@ header h1{font-size:26px}
 <section id="ads" class="card"><h2>آگهی‌های ثبت‌شده در سرور</h2><div id="adsList" class="muted">در حال دریافت…</div></section>
 <section id="purchases" class="card hidden"><h2>پیگیری سفارشات</h2><p class="muted">درخواست‌هایی که اعضا از فرم خرید ثبت می‌کنند، همراه شماره تماس در همین صندوق برای مدیر نمایش داده می‌شوند؛ هیچ پیامک یا پنل پیامکی لازم نیست.</p><button class="btn secondary" onclick="loadPurchaseRequests()">بروزرسانی درخواست‌ها</button><button class="btn danger" onclick="clearPurchaseRequestsView()">پاک کردن از صفحه</button><div id="purchaseRequestsList" class="muted">در حال دریافت درخواست‌ها…</div></section>
 <section id="form" class="card hidden"><h2 id="formTitle">ثبت آگهی جدید</h2><form onsubmit="saveAd(event)"><input id="adId" type="hidden"><label>عنوان آگهی</label><input id="adTitle" class="field" maxlength="180" required><label>نام بانک</label><input id="adBank" class="field" maxlength="120" required><label>مبلغ (تومان)</label><input id="adLoan" class="field money" inputmode="numeric" required><label>قیمت درج‌شده (تومان)</label><input id="adPrice" class="field money" inputmode="numeric" required><label>مدت بازپرداخت (ماه)</label><input id="adTerm" class="field" type="number" min="1" max="120" required><label>نرخ سود</label><input id="adInterest" class="field" maxlength="40"><label>توضیحات</label><textarea id="adDesc" class="field" rows="4" maxlength="5000"></textarea><button class="btn" id="saveBtn">ذخیره در سرور</button><button class="btn secondary" type="button" onclick="resetForm()">پاک‌کردن فرم</button></form><p id="formMsg" class="muted"></p></section>
-<section id="support" class="card hidden"><h2>صندوق پیام‌های اعضا</h2><p class="muted">گفت‌وگوی پشتیبانی با اعضا؛ فقط پیام‌های حساب انتخاب‌شده نمایش داده می‌شود.</p><div id="supportConversations" class="muted">در حال دریافت گفتگوها…</div><div id="supportThread" class="hidden"><h3 id="supportMemberTitle"></h3><div id="supportMessages" class="item" style="max-height:320px;overflow:auto"></div><label>پاسخ مدیر</label><textarea id="supportReply" class="field" rows="3" maxlength="3000" placeholder="متن پیام…"></textarea><button class="btn" onclick="sendSupportReply()">ارسال پاسخ</button><p id="supportStatus" class="muted"></p></div></section>
+<section id="support" class="card hidden"><h2>صندوق پیام‌های اعضا</h2><p class="muted">گفت‌وگوی پشتیبانی با اعضا؛ فقط پیام‌های حساب انتخاب‌شده نمایش داده می‌شود.</p><div id="supportConversations" class="muted">در حال دریافت گفتگوها…</div><div id="supportThread" class="hidden"><button class="btn secondary" onclick="backToSupportList()">بازگشت به فهرست اعضا</button><h3 id="supportMemberTitle"></h3><div id="supportMessages" class="item" style="max-height:320px;overflow:auto"></div><label>پاسخ مدیر</label><textarea id="supportReply" class="field" rows="3" maxlength="3000" placeholder="متن پیام…"></textarea><button class="btn" onclick="sendSupportReply()">ارسال پاسخ</button><p id="supportStatus" class="muted"></p></div></section>
 <section class="card"><h2>راهنمای مدیریت</h2><p class="muted">در این پنل فقط آگهی‌های اطلاع‌رسانی ثبت، ویرایش یا غیرفعال می‌شوند. اطلاعات آگهی را پیش از انتشار از منابع رسمی بررسی کنید.</p></section>
 </section></main>
 <script>
@@ -68,29 +68,56 @@ function editAd(id){const a=ads.find(x=>Number(x.id)===id);if(!a)return;tab('for
 function digits(v){return String(v||'').replace(/\D/g,'')}function money(v){return digits(v).replace(/\B(?=(\d{3})+(?!\d))/g,'/')}
 document.querySelectorAll('.money').forEach(e=>e.addEventListener('input',()=>e.value=money(e.value)));
 async function saveAd(ev){ev.preventDefault();const d={id:Number(document.getElementById('adId').value)||0,title:document.getElementById('adTitle').value.trim(),bank:document.getElementById('adBank').value.trim(),loan_amount:Number(digits(document.getElementById('adLoan').value)),price:Number(digits(document.getElementById('adPrice').value)),term_months:Number(document.getElementById('adTerm').value),interest_rate:document.getElementById('adInterest').value.trim(),description:document.getElementById('adDesc').value.trim()};try{await api('admin-ad-save','POST',d);msg('formMsg','آگهی در پایگاه داده سرور ذخیره شد.','muted ok');resetForm();await loadAds();tab('ads',document.querySelector('[data-tab="ads"]'))}catch(e){msg('formMsg','ذخیره انجام نشد: '+e.message,'muted error')}}
-async function deactivateAd(id){if(!confirm('آگهی از فهرست فعال خارج شود؟ اطلاعات آن حذف نمی‌شود.'))return;try{await api('admin-ad-delete','POST',{id});await loadAds()}catch(e){alert('غیرفعال‌سازی انجام نشد: '+e.message)}}
-let selectedSupportMember=0;
+async function deactivateAd(id){if(!confirm('آگهی از فهرست فعال خارج شود؟ اطلاعات آن حذف نمی‌شود.'))return;try{await api('admin-ad-dellet selectedSupportMember=0;
+let supportConversationsCache=[];
+function supportSeenKey(id){return 'vk_support_seen_'+Number(id)}
 async function loadSupportConversations(){
  const box=document.getElementById('supportConversations');
  try{
-  const r=await api('admin-conversations'); const rows=r.conversations||[];
-  box.innerHTML=rows.length?rows.map(x=>'<div class="item"><b>'+esc(x.username)+'</b><p class="muted">شناسه عضو: '+Number(x.member_id)+'</p><button class="btn secondary" onclick="openSupportThread('+Number(x.member_id)+',\''+esc(x.username).replace(/\\'/g,'&#39;')+'\')">بازکردن گفتگو</button></div>').join(''):'هنوز گفتگویی ثبت نشده است.';
+  const r=await api('admin-conversations');supportConversationsCache=r.conversations||[];
+  box.innerHTML=supportConversationsCache.length?supportConversationsCache.map(x=>{
+   const id=Number(x.member_id),last=Number(x.last_message_id)||0;
+   const seen=Number(localStorage.getItem(supportSeenKey(id))||0);
+   const fresh=last>seen;
+   return '<div class="item"><div style="display:flex;align-items:center;justify-content:space-between;gap:8px"><b>'+esc(x.username)+'</b>'+(fresh?'<span class="tag" style="background:#fff0f0;color:#b42318">پیام جدید</span>':'<span class="tag">گفتگو</span>')+'</div><p class="muted">شناسه عضو: '+id+'</p><button class="btn secondary" onclick="openSupportThread('+id+',\\''+esc(x.username).replace(/\\\\'/g,'&#39;')+'\\')">مشاهده گفتگو</button></div>';
+  }).join(''):'هنوز گفتگویی ثبت نشده است.';
  }catch(e){box.textContent='دریافت صندوق پیام‌ها ناموفق بود.'}
 }
 async function openSupportThread(id,username){
- selectedSupportMember=Number(id);document.getElementById('supportThread').classList.remove('hidden');
+ selectedSupportMember=Number(id);
+ document.getElementById('supportConversations').classList.add('hidden');
+ document.getElementById('supportThread').classList.remove('hidden');
  document.getElementById('supportMemberTitle').textContent='گفتگو با '+username;
+ document.getElementById('supportMessages').textContent='در حال دریافت پیام‌ها…';
  await loadSupportMessages();
+}
+async function backToSupportList(){
+ document.getElementById('supportThread').classList.add('hidden');
+ document.getElementById('supportConversations').classList.remove('hidden');
+ selectedSupportMember=0;
+ await loadSupportConversations();
 }
 async function loadSupportMessages(){
  if(!selectedSupportMember)return;
- try{const r=await api('messages?member_id='+selectedSupportMember);document.getElementById('supportMessages').innerHTML=(r.messages||[]).map(x=>'<p><b>'+(Number(x.sender_id)===selectedSupportMember?'عضو':'مدیر')+':</b> '+esc(x.body)+'</p>').join('')||'هنوز پیامی نیست.';}
- catch(e){document.getElementById('supportMessages').textContent='دریافت پیام‌ها ناموفق بود.'}
+ try{
+  const r=await api('messages?member_id='+selectedSupportMember);
+  const rows=r.messages||[];
+  document.getElementById('supportMessages').innerHTML=rows.map(x=>'<p><b>'+(Number(x.sender_id)===selectedSupportMember?'عضو':'مدیر')+':</b> '+esc(x.body)+'</p>').join('')||'هنوز پیامی نیست.';
+  const latest=supportConversationsCache.find(x=>Number(x.member_id)===selectedSupportMember);
+  if(latest)localStorage.setItem(supportSeenKey(selectedSupportMember),String(Number(latest.last_message_id)||0));
+ }catch(e){document.getElementById('supportMessages').textContent='دریافت پیام‌ها ناموفق بود.'}
 }
 async function sendSupportReply(){
  const el=document.getElementById('supportReply'),body=el.value.trim();if(!selectedSupportMember||!body)return;
- try{await api('message-send','POST',{member_id:selectedSupportMember,body});el.value='';document.getElementById('supportStatus').textContent='پاسخ ارسال شد.';await loadSupportMessages();await loadSupportConversations();}
- catch(e){document.getElementById('supportStatus').textContent='ارسال پاسخ ناموفق بود.'}
+ try{
+  await api('message-send','POST',{member_id:selectedSupportMember,body});
+  el.value='';document.getElementById('supportStatus').textContent='پاسخ ارسال شد.';
+  await loadSupportConversations();
+  const latest=supportConversationsCache.find(x=>Number(x.member_id)===selectedSupportMember);
+  if(latest)localStorage.setItem(supportSeenKey(selectedSupportMember),String(Number(latest.last_message_id)||0));
+  await loadSupportMessages();
+ }catch(e){document.getElementById('supportStatus').textContent='ارسال پاسخ ناموفق بود.'}
+}catch(e){document.getElementById('supportStatus').textContent='ارسال پاسخ ناموفق بود.'}
 }
 function esc(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
 async function logout(){try{await api('logout','POST',{})}catch(e){}token='';sessionStorage.removeItem('vk_manager_token');location.reload()}

@@ -539,6 +539,10 @@ if ($action === 'member-notifications' && $method === 'GET') {
   respond(200,['ok'=>true,'notifications'=>$q->fetchAll()]);
  } catch(Throwable $e) { respond(503,['ok'=>false,'error'=>'notifications_unavailable']); }
 }
+if ($action === 'admin-purchase-request-update' && $method === 'POST') {
+ try { $pdo=database(); ensureFeatureTables($pdo); requireAdmin($pdo); $d=requestData(); $id=(int)($d['id']??0); $status=(string)($d['status']??''); if($id<1||!in_array($status,['new','contacted','closed'],true)) respond(422,['ok'=>false,'error'=>'invalid_purchase_request_update']); $q=$pdo->prepare("UPDATE purchase_requests SET status=? WHERE id=?"); $q->execute([$status,$id]); respond(200,['ok'=>true]); }
+ catch(Throwable $e) { error_log('Vam Kamali admin purchase update error: '.$e->getMessage()); respond(503,['ok'=>false,'error'=>'purchase_request_update_unavailable']); }
+}
 if ($action === 'admin-notifications' && $method === 'GET') {
  try { $pdo=database(); requireAdmin($pdo); ensureFeatureTables($pdo); $q=$pdo->query("SELECT id,title,body,created_at FROM member_notifications ORDER BY id DESC LIMIT 100"); respond(200,['ok'=>true,'notifications'=>$q->fetchAll()]); }
  catch(Throwable $e) { error_log('Vam Kamali admin notifications error: '.$e->getMessage()); respond(503,['ok'=>false,'error'=>'notifications_unavailable']); }

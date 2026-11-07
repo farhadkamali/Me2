@@ -65,11 +65,19 @@ public class MainActivity extends Activity {
 
       web.setWebChromeClient(new WebChromeClient());
       web.setWebViewClient(new WebViewClient());
+      web.addJavascriptInterface(new AppBridge(), "Android");
 
       setContentView(web);
       web.loadUrl("file:///android_asset/index.html");
     } catch (Throwable error) {
       showStartupError(error);
+    }
+  }
+
+  private class AppBridge {
+    @android.webkit.JavascriptInterface
+    public void exitApp() {
+      runOnUiThread(() -> finish());
     }
   }
 

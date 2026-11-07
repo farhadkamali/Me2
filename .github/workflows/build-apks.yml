@@ -94,6 +94,10 @@ jobs:
         with:
           name: vam-kamali-manager-apk
           path: dist/manager
+      - name: Rename APK assets
+        run: |
+          cp dist/members/app-debug.apk dist/Vam-Kamali-Members.apk
+          cp dist/manager/app-debug.apk dist/Vam-Kamali-Manager.apk
       - name: Publish public APK release
         uses: softprops/action-gh-release@v2
         with:
@@ -101,6 +105,7 @@ jobs:
           name: وام کمالی نسخه ۱.۰.۰
           target_commitish: member-ui-refresh
           generate_release_notes: true
+          overwrite_files: true
           files: |
-            dist/members/app-debug.apk
-            dist/manager/app-debug.apk
+            dist/Vam-Kamali-Members.apk
+            dist/Vam-Kamali-Manager.apk

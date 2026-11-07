@@ -532,7 +532,7 @@ if ($action === 'member-requests' && $method === 'GET') {
 }
 if ($action === 'member-notifications' && $method === 'GET') {
  try {
-  $pdo=database(); ensureFeatureTables($pdo); authenticatedUser($pdo);
+  $pdo=database(); ensureFeatureTables($pdo);
   $u=authenticatedUser($pdo);
   $q=$pdo->prepare("SELECT n.id,n.title,n.body,n.created_at,CASE WHEN r.notification_id IS NULL THEN 0 ELSE 1 END AS is_read FROM member_notifications n LEFT JOIN member_notification_reads r ON r.notification_id=n.id AND r.user_id=? ORDER BY n.id DESC LIMIT 100");
   $q->execute([$u['id']]);

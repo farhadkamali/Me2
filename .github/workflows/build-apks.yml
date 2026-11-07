@@ -36,6 +36,24 @@ jobs:
         with:
           gradle-version: "8.9"
 
+      - name: Validate PHP and JavaScript
+        run: |
+          php -l backend/api/index.php
+          node --check members-app/app/src/main/assets/member-refresh.js
+          python3 - <<'PY'
+          import re
+          from pathlib import Path
+          for source, output in [
+              ("members-app/app/src/main/assets/index.html", "/tmp/member-inline.js"),
+              ("manager-app/app/src/main/assets/index.html", "/tmp/manager-inline.js"),
+          ]:
+              html = Path(source).read_text(encoding="utf-8")
+              scripts = re.findall(r"<script>(.*?)</script>", html, flags=re.S)
+              Path(output).write_text("\n".join(scripts), encoding="utf-8")
+          PY
+          node --check /tmp/member-inline.js
+          node --check /tmp/manager-inline.js
+
       - name: Build members APK
         working-directory: members-app
         run: gradle assembleDebug

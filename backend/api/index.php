@@ -70,6 +70,7 @@ function ensureFeatureTables(PDO $pdo): void {
  $pdo->exec("CREATE TABLE IF NOT EXISTS member_messages (id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY, member_id BIGINT UNSIGNED NOT NULL, sender_id BIGINT UNSIGNED NOT NULL, body TEXT NOT NULL, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, INDEX(member_id,id)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
  $pdo->exec("CREATE TABLE IF NOT EXISTS purchase_requests (id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY, user_id BIGINT UNSIGNED NOT NULL, ad_id BIGINT UNSIGNED NOT NULL, full_name VARCHAR(120) NOT NULL, phone VARCHAR(11) NOT NULL, contact_id VARCHAR(160) NOT NULL DEFAULT '', city VARCHAR(80) NOT NULL DEFAULT '', notes TEXT NOT NULL, status ENUM('new','contacted','closed') NOT NULL DEFAULT 'new', created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, INDEX(user_id), INDEX(ad_id), INDEX(status)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
  $pdo->exec("CREATE TABLE IF NOT EXISTS member_notifications (id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY, title VARCHAR(180) NOT NULL, body TEXT NOT NULL, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, INDEX(created_at)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+ $pdo->exec("CREATE TABLE IF NOT EXISTS member_notification_reads (user_id BIGINT UNSIGNED NOT NULL, notification_id BIGINT UNSIGNED NOT NULL, read_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, PRIMARY KEY(user_id,notification_id), INDEX(notification_id)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
  $pdo->exec("CREATE TABLE IF NOT EXISTS manager_push_tokens (token_hash CHAR(64) PRIMARY KEY, admin_id BIGINT UNSIGNED NOT NULL, fcm_token TEXT NOT NULL, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP, INDEX(admin_id)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
  // Upgrade older purchase_requests tables created by previous app versions.
  $purchaseColumns = [
@@ -83,6 +84,19 @@ function ensureFeatureTables(PDO $pdo): void {
   'status' => "ENUM('new','contacted','closed') NOT NULL DEFAULT 'new'",
   'created_at' => "TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP"
  ];
+ $purchaseExtraColumns = [
+  'request_type' => "VARCHAR(20) NOT NULL DEFAULT 'purchase'",
+  'bank' => "VARCHAR(80) NOT NULL DEFAULT ''",
+  'branch' => "VARCHAR(100) NOT NULL DEFAULT ''",
+  'loan_amount' => "BIGINT UNSIGNED NOT NULL DEFAULT 0",
+  'term_months' => "INT UNSIGNED NOT NULL DEFAULT 0",
+  'suggested_amount' => "BIGINT UNSIGNED NOT NULL DEFAULT 0"
+ ];
+ foreach ($purchaseExtraColumns as $column => $definition) {
+  $check = $pdo->prepare("SELECT 1 FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'purchase_requests' AND COLUMN_NAME = ? LIMIT 1");
+  $check->execute([$column]);
+  if (!$check->fetchColumn()) $pdo->exec("ALTER TABLE purchase_requests ADD COLUMN `".$column."` ".$definition);
+ }
  foreach ($purchaseColumns as $column => $definition) {
   // Query information_schema instead of preparing SHOW COLUMNS.
   // Some MySQL/MariaDB versions reject placeholders in SHOW statements.
@@ -496,8 +510,8 @@ if ($action === 'member-order-create' && $method === 'POST') {
   if($amount===''||strlen($amount)>15||$offer===''||strlen($offer)>15||!in_array($bank,['بانک رسالت','مهر ایران','بانک ملت'],true)||mb_strlen($branch)>100||!$term||$term<1||$term>240||$name===''||mb_strlen($name)>120||!preg_match('/^09[0-9]{9}$/',$phone)) respond(422,['ok'=>false,'error'=>'invalid_member_order']);
   $summary='بانک: '.$bank.' | شعبه: '.($branch!==''?$branch:'ذکر نشده').' | مبلغ وام: '.$amount.' تومان | مدت: '.$term.' ماه | پیشنهادی: '.$offer.' تومان';
   if(mb_strlen($summary)>160) $summary=mb_substr($summary,0,157).'...';
-  $q=$pdo->prepare("INSERT INTO purchase_requests(user_id,ad_id,full_name,phone,contact_id,city,notes) VALUES(?,0,?,?,?,'',?)");
-  $q->execute([$u['id'],$name,$phone,$summary,$summary]);
+  $q=$pdo->prepare("INSERT INTO purchase_requests(user_id,ad_id,request_type,full_name,phone,contact_id,city,notes,bank,branch,loan_amount,term_months,suggested_amount) VALUES(?,0,'order',?,?,?,'',?,?,?,?,?,?)");
+  $q->execute([$u['id'],$name,$phone,'',$summary,$bank,$branch,(int)$amount,$term,(int)$offer]);
   respond(201,['ok'=>true,'id'=>(int)$pdo->lastInsertId()]);
  } catch(Throwable $e) {
   error_log('Vam Kamali member order error: '.$e->getMessage());
@@ -507,11 +521,11 @@ if ($action === 'member-order-create' && $method === 'POST') {
 if ($action === 'member-requests' && $method === 'GET') {
  try {
   $pdo=database(); ensureFeatureTables($pdo); $u=authenticatedUser($pdo);
-  $q=$pdo->prepare("SELECT r.id,r.full_name,r.phone,r.contact_id,r.notes,r.status,r.created_at,r.ad_id,a.title AS ad_title,a.bank AS ad_bank,a.loan_amount AS ad_loan_amount FROM purchase_requests r LEFT JOIN ads a ON a.id=r.ad_id WHERE r.user_id=? ORDER BY r.id DESC");
+  $q=$pdo->prepare("SELECT r.id,r.full_name,r.phone,r.contact_id,r.notes,r.status,r.created_at,r.ad_id,r.request_type,r.bank,r.branch,r.loan_amount,r.term_months,r.suggested_amount,a.title AS ad_title,a.bank AS ad_bank,a.loan_amount AS ad_loan_amount FROM purchase_requests r LEFT JOIN ads a ON a.id=r.ad_id WHERE r.user_id=? ORDER BY r.id DESC");
   $q->execute([$u['id']]); $rows=[];
   foreach($q->fetchAll() as $x){
    $isOrder=(int)$x['ad_id']===0;
-   $rows[]=['id'=>(int)$x['id'],'title'=>$isOrder?'درخواست سفارش تسهیلات':($x['ad_title']?:'درخواست خرید آگهی'),'bank'=>$isOrder?$x['contact_id']:($x['ad_bank']?:''),'amount'=>$isOrder?'':$x['ad_loan_amount'],'status'=>$x['status'],'status_label'=>['new'=>'جدید','contacted'=>'در حال پیگیری','closed'=>'بسته‌شده'][$x['status']]??$x['status'],'created_at'=>$x['created_at']];
+   $rows[]=['id'=>(int)$x['id'],'title'=>$isOrder?'درخواست سفارش تسهیلات':($x['ad_title']?:'درخواست خرید آگهی'),'bank'=>$isOrder?$x['bank']:($x['ad_bank']?:''),'branch'=>$x['branch'],'amount'=>$isOrder?$x['loan_amount']:$x['ad_loan_amount'],'term_months'=>$x['term_months'],'suggested_amount'=>$x['suggested_amount'],'status'=>$x['status'],'status_label'=>['new'=>'جدید','contacted'=>'در حال پیگیری','closed'=>'بسته‌شده'][$x['status']]??$x['status'],'created_at'=>$x['created_at']];
   }
   respond(200,['ok'=>true,'requests'=>$rows]);
  } catch(Throwable $e) { error_log('Vam Kamali member requests error: '.$e->getMessage()); respond(503,['ok'=>false,'error'=>'member_requests_unavailable']); }
@@ -519,9 +533,19 @@ if ($action === 'member-requests' && $method === 'GET') {
 if ($action === 'member-notifications' && $method === 'GET') {
  try {
   $pdo=database(); ensureFeatureTables($pdo); authenticatedUser($pdo);
-  $q=$pdo->query("SELECT id,title,body,created_at,0 AS is_read FROM member_notifications ORDER BY id DESC LIMIT 100");
+  $u=authenticatedUser($pdo);
+  $q=$pdo->prepare("SELECT n.id,n.title,n.body,n.created_at,CASE WHEN r.notification_id IS NULL THEN 0 ELSE 1 END AS is_read FROM member_notifications n LEFT JOIN member_notification_reads r ON r.notification_id=n.id AND r.user_id=? ORDER BY n.id DESC LIMIT 100");
+  $q->execute([$u['id']]);
   respond(200,['ok'=>true,'notifications'=>$q->fetchAll()]);
  } catch(Throwable $e) { respond(503,['ok'=>false,'error'=>'notifications_unavailable']); }
+}
+if ($action === 'admin-notifications' && $method === 'GET') {
+ try { $pdo=database(); requireAdmin($pdo); ensureFeatureTables($pdo); $q=$pdo->query("SELECT id,title,body,created_at FROM member_notifications ORDER BY id DESC LIMIT 100"); respond(200,['ok'=>true,'notifications'=>$q->fetchAll()]); }
+ catch(Throwable $e) { error_log('Vam Kamali admin notifications error: '.$e->getMessage()); respond(503,['ok'=>false,'error'=>'notifications_unavailable']); }
+}
+if ($action === 'member-notification-read' && $method === 'POST') {
+ try { $pdo=database(); ensureFeatureTables($pdo); $u=authenticatedUser($pdo); $d=requestData(); $id=(int)($d['id']??0); if($id<1) respond(422,['ok'=>false,'error'=>'invalid_notification_id']); $q=$pdo->prepare("INSERT IGNORE INTO member_notification_reads(user_id,notification_id) SELECT ?,id FROM member_notifications WHERE id=?"); $q->execute([$u['id'],$id]); respond(200,['ok'=>true]); }
+ catch(Throwable $e) { error_log('Vam Kamali notification read error: '.$e->getMessage()); respond(503,['ok'=>false,'error'=>'notification_read_unavailable']); }
 }
 if ($action === 'admin-notification-create' && $method === 'POST') {
  try {

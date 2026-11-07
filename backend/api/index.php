@@ -69,6 +69,7 @@ function ensureFeatureTables(PDO $pdo): void {
  $cols=$pdo->query("SHOW COLUMNS FROM member_inquiries LIKE 'phone'"); if(!$cols->fetch()) $pdo->exec("ALTER TABLE member_inquiries ADD phone VARCHAR(11) NOT NULL DEFAULT '' AFTER user_id");
  $pdo->exec("CREATE TABLE IF NOT EXISTS member_messages (id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY, member_id BIGINT UNSIGNED NOT NULL, sender_id BIGINT UNSIGNED NOT NULL, body TEXT NOT NULL, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, INDEX(member_id,id)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
  $pdo->exec("CREATE TABLE IF NOT EXISTS purchase_requests (id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY, user_id BIGINT UNSIGNED NOT NULL, ad_id BIGINT UNSIGNED NOT NULL, full_name VARCHAR(120) NOT NULL, phone VARCHAR(11) NOT NULL, contact_id VARCHAR(160) NOT NULL DEFAULT '', city VARCHAR(80) NOT NULL DEFAULT '', notes TEXT NOT NULL, status ENUM('new','contacted','closed') NOT NULL DEFAULT 'new', created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, INDEX(user_id), INDEX(ad_id), INDEX(status)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+ $pdo->exec("CREATE TABLE IF NOT EXISTS member_notifications (id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY, title VARCHAR(180) NOT NULL, body TEXT NOT NULL, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, INDEX(created_at)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
  $pdo->exec("CREATE TABLE IF NOT EXISTS manager_push_tokens (token_hash CHAR(64) PRIMARY KEY, admin_id BIGINT UNSIGNED NOT NULL, fcm_token TEXT NOT NULL, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP, INDEX(admin_id)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
  // Upgrade older purchase_requests tables created by previous app versions.
  $purchaseColumns = [
@@ -480,6 +481,56 @@ if ($action === 'message-send' && $method === 'POST') {
   error_log('Vam Kamali message send error: '.$e->getMessage().' | '.$e->getFile().':'.$e->getLine());
   respond(503,['ok'=>false,'error'=>'message_send_unavailable']);
  }
+}
+
+
+/* Member order form and member-facing history/notifications. */
+if ($action === 'member-order-create' && $method === 'POST') {
+ try {
+  $pdo=database(); ensureFeatureTables($pdo); $u=authenticatedUser($pdo); $d=requestData();
+  $amount=preg_replace('/[^0-9]/','',(string)($d['loan_amount']??''));
+  $offer=preg_replace('/[^0-9]/','',(string)($d['suggested_amount']??''));
+  $bank=trim((string)($d['bank']??'')); $branch=trim((string)($d['branch']??''));
+  $term=filter_var($d['term_months']??null,FILTER_VALIDATE_INT);
+  $name=trim((string)($d['full_name']??'')); $phone=trim((string)($d['phone']??''));
+  if($amount===''||strlen($amount)>15||$offer===''||strlen($offer)>15||!in_array($bank,['بانک رسالت','مهر ایران','بانک ملت'],true)||mb_strlen($branch)>100||!$term||$term<1||$term>240||$name===''||mb_strlen($name)>120||!preg_match('/^09[0-9]{9}$/',$phone)) respond(422,['ok'=>false,'error'=>'invalid_member_order']);
+  $summary='بانک: '.$bank.' | شعبه: '.($branch!==''?$branch:'ذکر نشده').' | مبلغ وام: '.$amount.' تومان | مدت: '.$term.' ماه | پیشنهادی: '.$offer.' تومان';
+  if(mb_strlen($summary)>160) $summary=mb_substr($summary,0,157).'...';
+  $q=$pdo->prepare("INSERT INTO purchase_requests(user_id,ad_id,full_name,phone,contact_id,city,notes) VALUES(?,0,?,?,?,'',?)");
+  $q->execute([$u['id'],$name,$phone,$summary,$summary]);
+  respond(201,['ok'=>true,'id'=>(int)$pdo->lastInsertId()]);
+ } catch(Throwable $e) {
+  error_log('Vam Kamali member order error: '.$e->getMessage());
+  respond(503,['ok'=>false,'error'=>'member_order_unavailable']);
+ }
+}
+if ($action === 'member-requests' && $method === 'GET') {
+ try {
+  $pdo=database(); ensureFeatureTables($pdo); $u=authenticatedUser($pdo);
+  $q=$pdo->prepare("SELECT r.id,r.full_name,r.phone,r.contact_id,r.notes,r.status,r.created_at,r.ad_id,a.title AS ad_title,a.bank AS ad_bank,a.loan_amount AS ad_loan_amount FROM purchase_requests r LEFT JOIN ads a ON a.id=r.ad_id WHERE r.user_id=? ORDER BY r.id DESC");
+  $q->execute([$u['id']]); $rows=[];
+  foreach($q->fetchAll() as $x){
+   $isOrder=(int)$x['ad_id']===0;
+   $rows[]=['id'=>(int)$x['id'],'title'=>$isOrder?'درخواست سفارش تسهیلات':($x['ad_title']?:'درخواست خرید آگهی'),'bank'=>$isOrder?$x['contact_id']:($x['ad_bank']?:''),'amount'=>$isOrder?'':$x['ad_loan_amount'],'status'=>$x['status'],'status_label'=>['new'=>'جدید','contacted'=>'در حال پیگیری','closed'=>'بسته‌شده'][$x['status']]??$x['status'],'created_at'=>$x['created_at']];
+  }
+  respond(200,['ok'=>true,'requests'=>$rows]);
+ } catch(Throwable $e) { error_log('Vam Kamali member requests error: '.$e->getMessage()); respond(503,['ok'=>false,'error'=>'member_requests_unavailable']); }
+}
+if ($action === 'member-notifications' && $method === 'GET') {
+ try {
+  $pdo=database(); ensureFeatureTables($pdo); authenticatedUser($pdo);
+  $q=$pdo->query("SELECT id,title,body,created_at,0 AS is_read FROM member_notifications ORDER BY id DESC LIMIT 100");
+  respond(200,['ok'=>true,'notifications'=>$q->fetchAll()]);
+ } catch(Throwable $e) { respond(503,['ok'=>false,'error'=>'notifications_unavailable']); }
+}
+if ($action === 'admin-notification-create' && $method === 'POST') {
+ try {
+  $pdo=database(); requireAdmin($pdo); ensureFeatureTables($pdo); $d=requestData();
+  $title=trim((string)($d['title']??'')); $body=trim((string)($d['body']??''));
+  if($title===''||mb_strlen($title)>180||$body===''||mb_strlen($body)>5000) respond(422,['ok'=>false,'error'=>'invalid_notification']);
+  $q=$pdo->prepare("INSERT INTO member_notifications(title,body) VALUES(?,?)"); $q->execute([$title,$body]);
+  respond(201,['ok'=>true,'id'=>(int)$pdo->lastInsertId()]);
+ } catch(Throwable $e) { error_log('Vam Kamali notification create error: '.$e->getMessage()); respond(503,['ok'=>false,'error'=>'notification_create_unavailable']); }
 }
 
 respond(405, ['ok'=>false, 'error'=>'not_found_or_method_not_allowed']);

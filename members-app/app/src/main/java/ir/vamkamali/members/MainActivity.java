@@ -1,6 +1,8 @@
 package ir.vamkamali.members;
 
 import android.app.Activity;
+import android.content.Intent;
+import android.net.Uri;
 import android.os.Bundle;
 import android.graphics.Color;
 import android.view.View;
@@ -9,6 +11,7 @@ import android.webkit.WebChromeClient;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
+import android.webkit.WebResourceRequest;
 import android.widget.TextView;
 
 public class MainActivity extends Activity {
@@ -35,6 +38,19 @@ public class MainActivity extends Activity {
     message.setPadding(28, 28, 28, 28);
     message.setBackgroundColor(Color.rgb(243, 247, 253));
     setContentView(message);
+  }
+
+  private boolean openMemberApkDownload(Uri uri) {
+    if ("farhadkamalii.ir".equalsIgnoreCase(uri.getHost())
+        && "/downloads/Vam-Kamali-Members.apk".equals(uri.getPath())) {
+      try {
+        startActivity(new Intent(Intent.ACTION_VIEW, uri));
+      } catch (Exception error) {
+        android.widget.Toast.makeText(this, "مرورگر یا برنامه‌ای برای دانلود پیدا نشد.", android.widget.Toast.LENGTH_LONG).show();
+      }
+      return true;
+    }
+    return false;
   }
 
   @Override public void onWindowFocusChanged(boolean hasFocus) {
@@ -64,7 +80,17 @@ public class MainActivity extends Activity {
       settings.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
 
       web.setWebChromeClient(new WebChromeClient());
-      web.setWebViewClient(new WebViewClient());
+      web.setWebViewClient(new WebViewClient() {
+        @Override
+        public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
+          return openMemberApkDownload(request.getUrl());
+        }
+
+        @Override
+        public boolean shouldOverrideUrlLoading(WebView view, String url) {
+          return openMemberApkDownload(Uri.parse(url));
+        }
+      });
       web.addJavascriptInterface(new AppBridge(), "Android");
 
       setContentView(web);

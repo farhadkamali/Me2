@@ -1,0 +1,48 @@
+{
+  "project_info": {
+    "project_number": "46856645011",
+    "project_id": "vam-kamali-manager",
+    "storage_bucket": "vam-kamali-manager.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:46856645011:android:fa28ecb33e0389e62d2066",
+        "android_client_info": {
+          "package_name": "ir.vamkamali.manager"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyA_qOhTBt1Qa0x9AJnq7pGrZkca-n7UVw"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:46856645011:android:17a68b5b921e1f3d2d2066",
+        "android_client_info": {
+          "package_name": "ir.vamkamali.members"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyA_qOhTBt1Qa0x9AJnq7pGrZkca-n7UVw"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

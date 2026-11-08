@@ -72,6 +72,7 @@ function ensureFeatureTables(PDO $pdo): void {
  $pdo->exec("CREATE TABLE IF NOT EXISTS member_notifications (id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY, title VARCHAR(180) NOT NULL, body TEXT NOT NULL, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, INDEX(created_at)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
  $pdo->exec("CREATE TABLE IF NOT EXISTS member_notification_reads (user_id BIGINT UNSIGNED NOT NULL, notification_id BIGINT UNSIGNED NOT NULL, read_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, PRIMARY KEY(user_id,notification_id), INDEX(notification_id)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
  $pdo->exec("CREATE TABLE IF NOT EXISTS manager_push_tokens (token_hash CHAR(64) PRIMARY KEY, admin_id BIGINT UNSIGNED NOT NULL, fcm_token TEXT NOT NULL, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP, INDEX(admin_id)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+ $pdo->exec("CREATE TABLE IF NOT EXISTS member_push_tokens (token_hash CHAR(64) PRIMARY KEY, member_id BIGINT UNSIGNED NOT NULL, fcm_token TEXT NOT NULL, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP, INDEX(member_id)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
  // Upgrade older purchase_requests tables created by previous app versions.
  $purchaseColumns = [
   'user_id' => "BIGINT UNSIGNED NOT NULL DEFAULT 0",
@@ -209,6 +210,39 @@ function sendManagerPushNotifications(PDO $pdo, string $memberId, string $member
     } catch (Throwable $e) {
         error_log('Vam Kamali FCM error: '.$e->getMessage());
     }
+}
+
+ 
+function sendMemberPushNotifications(PDO $pdo, ?string $memberId, string $title, string $body, string $type, string $itemId = ''): void {
+    $accountPath = getenv('VK_FIREBASE_SERVICE_ACCOUNT') ?: dirname(__DIR__, 2).'/private/firebase-service-account.json';
+    if (!is_file($accountPath)) { error_log('Vam Kamali FCM: service account file is not installed outside public_html.'); return; }
+    try {
+        $service = json_decode((string)file_get_contents($accountPath), true);
+        if (!is_array($service)) throw new RuntimeException('Invalid Firebase service account JSON.');
+        $projectId = (string)($service['project_id'] ?? '');
+        if ($projectId !== 'vam-kamali-manager') throw new RuntimeException('Firebase service account project_id mismatch.');
+        $accessToken = firebaseAccessToken($service);
+        if ($memberId !== null) {
+            $q = $pdo->prepare('SELECT token_hash,fcm_token FROM member_push_tokens WHERE member_id=?');
+            $q->execute([(int)$memberId]);
+        } else {
+            $q = $pdo->query('SELECT token_hash,fcm_token FROM member_push_tokens');
+        }
+        foreach ($q->fetchAll() as $row) {
+            $payload = ['message'=>[
+                'token'=>$row['fcm_token'],
+                'notification'=>['title'=>mb_substr($title,0,120),'body'=>mb_substr($body,0,180)],
+                'data'=>['type'=>$type,'item_id'=>(string)$itemId],
+                'android'=>['priority'=>'HIGH']
+            ]];
+            $ch = curl_init('https://fcm.googleapis.com/v1/projects/'.$projectId.'/messages:send');
+            curl_setopt_array($ch, [CURLOPT_POST=>true,CURLOPT_POSTFIELDS=>json_encode($payload,JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES),CURLOPT_RETURNTRANSFER=>true,CURLOPT_HTTPHEADER=>['Authorization: Bearer '.$accessToken,'Content-Type: application/json'],CURLOPT_CONNECTTIMEOUT=>10,CURLOPT_TIMEOUT=>20]);
+            $response = curl_exec($ch); $status = (int)curl_getinfo($ch,CURLINFO_HTTP_CODE); curl_close($ch);
+            if ($status===404 || (is_string($response) && strpos($response,'UNREGISTERED')!==false)) {
+                $del=$pdo->prepare('DELETE FROM member_push_tokens WHERE token_hash=?'); $del->execute([$row['token_hash']]);
+            } elseif ($response===false || $status<200 || $status>=300) { error_log('Vam Kamali member FCM send failed with HTTP '.$status.'.'); }
+        }
+    } catch (Throwable $e) { error_log('Vam Kamali member FCM error: '.$e->getMessage()); }
 }
 
 function issueToken(PDO $pdo, int $userId): string {
@@ -448,6 +482,20 @@ if ($action === 'manager-device-register' && $method === 'POST') {
  }
 }
 
+
+if ($action === 'member-device-register' && $method === 'POST') {
+ try {
+  $pdo=database(); ensureFeatureTables($pdo); $u=authenticatedUser($pdo); $d=requestData();
+  if (($u['role'] ?? 'member') !== 'member') respond(403,['ok'=>false,'error'=>'member_access_required']);
+  $fcmToken=trim((string)($d['fcm_token']??''));
+  if(strlen($fcmToken)<50||strlen($fcmToken)>4096) respond(422,['ok'=>false,'error'=>'invalid_fcm_token']);
+  $hash=hash('sha256',$fcmToken);
+  $s=$pdo->prepare("INSERT INTO member_push_tokens(token_hash,member_id,fcm_token) VALUES(?,?,?) ON DUPLICATE KEY UPDATE member_id=VALUES(member_id),fcm_token=VALUES(fcm_token),updated_at=CURRENT_TIMESTAMP");
+  $s->execute([$hash,(int)$u['id'],$fcmToken]);
+  respond(200,['ok'=>true]);
+ } catch(Throwable $e) { error_log('Vam Kamali member push registration error: '.$e->getMessage()); respond(503,['ok'=>false,'error'=>'push_registration_unavailable']); }
+}
+
 if ($action === 'admin-conversations' && $method === 'GET') {
  try {
   $pdo=database();
@@ -489,6 +537,8 @@ if ($action === 'message-send' && $method === 'POST') {
    $memberQuery->execute([$mid]);
    $memberName=(string)($memberQuery->fetchColumn() ?: 'عضو');
    sendManagerPushNotifications($pdo,(string)$mid,$memberName,$body);
+  } else {
+   sendMemberPushNotifications($pdo,(string)$mid,'پیام جدید از پشتیبانی',$body,'admin_message',(string)$messageId);
   }
   respond(201,['ok'=>true,'id'=>$messageId]);
  } catch(Throwable $e) {
@@ -557,7 +607,9 @@ if ($action === 'admin-notification-create' && $method === 'POST') {
   $title=trim((string)($d['title']??'')); $body=trim((string)($d['body']??''));
   if($title===''||mb_strlen($title)>180||$body===''||mb_strlen($body)>5000) respond(422,['ok'=>false,'error'=>'invalid_notification']);
   $q=$pdo->prepare("INSERT INTO member_notifications(title,body) VALUES(?,?)"); $q->execute([$title,$body]);
-  respond(201,['ok'=>true,'id'=>(int)$pdo->lastInsertId()]);
+  $notificationId=(int)$pdo->lastInsertId();
+  sendMemberPushNotifications($pdo,null,$title,$body,'announcement',(string)$notificationId);
+  respond(201,['ok'=>true,'id'=>$notificationId]);
  } catch(Throwable $e) { error_log('Vam Kamali notification create error: '.$e->getMessage()); respond(503,['ok'=>false,'error'=>'notification_create_unavailable']); }
 }
 

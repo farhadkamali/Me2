@@ -111,6 +111,18 @@ public class MainActivity extends Activity {
     public String getFcmToken() { return getSharedPreferences("vamkamali_push", MODE_PRIVATE).getString("fcm_token", ""); }
 
     @android.webkit.JavascriptInterface
+    public void downloadMemberApk() {
+      runOnUiThread(() -> {
+        Uri apkUri = Uri.parse("https://farhadkamalii.ir/downloads/Vam-Kamali-Members.apk");
+        try {
+          startActivity(new Intent(Intent.ACTION_VIEW, apkUri));
+        } catch (Exception error) {
+          android.widget.Toast.makeText(MainActivity.this, "مرورگر یا برنامه‌ای برای دانلود پیدا نشد.", android.widget.Toast.LENGTH_LONG).show();
+        }
+      });
+    }
+
+    @android.webkit.JavascriptInterface
     public void exitApp() {
       runOnUiThread(() -> finish());
     }

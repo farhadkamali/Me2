@@ -71,7 +71,7 @@ jobs:
           if-no-files-found: error
 
   publish-members-release:
-    if: github.event_name == 'push' && github.ref == 'refs/heads/member-ui-refresh' && secrets.ANDROID_KEYSTORE_BASE64 != ''
+    if: github.event_name == 'push' && github.ref == 'refs/heads/member-ui-refresh' && vars.ENABLE_MEMBERS_RELEASE == 'true'
     needs: build
     runs-on: ubuntu-latest
     steps:
@@ -99,6 +99,8 @@ jobs:
           ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: gradle assembleRelease -PversionCode=${GITHUB_RUN_NUMBER}
+      - name: Rename signed APK
+        run: cp members-app/app/build/outputs/apk/release/app-release.apk Vam-Kamali-Members.apk
       - name: Publish members APK
         uses: softprops/action-gh-release@v2
         with:
@@ -107,4 +109,4 @@ jobs:
           target_commitish: member-ui-refresh
           generate_release_notes: true
           overwrite_files: true
-          files: members-app/app/build/outputs/apk/release/app-release.apk
+          files: Vam-Kamali-Members.apk

@@ -13,6 +13,10 @@ import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.webkit.WebResourceRequest;
 import android.widget.TextView;
+import android.content.SharedPreferences;
+import android.os.Build;
+import android.content.pm.PackageManager;
+import com.google.firebase.messaging.FirebaseMessaging;
 
 public class MainActivity extends Activity {
   private WebView web;
@@ -68,6 +72,8 @@ public class MainActivity extends Activity {
       getWindow().setNavigationBarColor(Color.TRANSPARENT);
       enableImmersiveMode();
 
+      if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission("android.permission.POST_NOTIFICATIONS") != PackageManager.PERMISSION_GRANTED) requestPermissions(new String[]{"android.permission.POST_NOTIFICATIONS"}, 4102);
+      FirebaseMessaging.getInstance().getToken().addOnSuccessListener(t -> getSharedPreferences("vamkamali_push", MODE_PRIVATE).edit().putString("fcm_token", t).apply());
       web = new WebView(this);
       web.setBackgroundColor(Color.rgb(243, 247, 253));
       web.setOverScrollMode(View.OVER_SCROLL_NEVER);
@@ -101,6 +107,9 @@ public class MainActivity extends Activity {
   }
 
   private class AppBridge {
+    @android.webkit.JavascriptInterface
+    public String getFcmToken() { return getSharedPreferences("vamkamali_push", MODE_PRIVATE).getString("fcm_token", ""); }
+
     @android.webkit.JavascriptInterface
     public void exitApp() {
       runOnUiThread(() -> finish());

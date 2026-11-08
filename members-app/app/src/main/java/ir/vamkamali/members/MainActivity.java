@@ -45,8 +45,8 @@ public class MainActivity extends Activity {
   }
 
   private boolean openMemberApkDownload(Uri uri) {
-    if ("farhadkamalii.ir".equalsIgnoreCase(uri.getHost())
-        && "/downloads/Vam-Kamali-Members.apk".equals(uri.getPath())) {
+    if ("github.com".equalsIgnoreCase(uri.getHost())
+        && "/farhadkamali/Me2/releases/download/v1.0.0/Vam-Kamali-Members.apk".equals(uri.getPath())) {
       try {
         startActivity(new Intent(Intent.ACTION_VIEW, uri));
       } catch (Exception error) {
@@ -113,7 +113,7 @@ public class MainActivity extends Activity {
     @android.webkit.JavascriptInterface
     public void downloadMemberApk() {
       runOnUiThread(() -> {
-        Uri apkUri = Uri.parse("https://farhadkamalii.ir/downloads/Vam-Kamali-Members.apk");
+        Uri apkUri = Uri.parse("https://github.com/farhadkamali/Me2/releases/download/v1.0.0/Vam-Kamali-Members.apk");
         try {
           startActivity(new Intent(Intent.ACTION_VIEW, apkUri));
         } catch (Exception error) {
